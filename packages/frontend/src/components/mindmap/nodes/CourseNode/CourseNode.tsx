@@ -1,0 +1,65 @@
+import { memo } from 'react';
+import { Handle, Position, type NodeProps } from 'reactflow';
+import type { CourseNodeData } from '@/types/mindmap.types';
+
+const FORMAT_LABELS: Record<string, string> = {
+  topics: 'Par thèmes',
+  weeks: 'Par semaines',
+  social: 'Social',
+};
+
+function CourseNodeComponent({ data, selected }: NodeProps<CourseNodeData>) {
+  return (
+    <div
+      className={`
+        bg-white rounded-2xl border transition-all duration-200 min-w-[220px]
+        ${selected ? 'border-blue-400 shadow-node-hover ring-2 ring-blue-200' : 'border-course-border shadow-node hover:shadow-node-hover'}
+      `}
+    >
+      {/* Colored top accent bar */}
+      <div className="h-1 bg-gradient-to-r from-blue-400 to-blue-600 rounded-t-2xl" />
+
+      <div className="px-4 py-3">
+        <div className="flex items-start gap-3">
+          {/* Icon */}
+          <div className="w-9 h-9 rounded-xl bg-course-light flex items-center justify-center flex-shrink-0 mt-0.5">
+            <span className="text-lg leading-none">🎓</span>
+          </div>
+
+          {/* Content */}
+          <div className="flex-1 min-w-0">
+            <div className="text-[11px] font-semibold text-blue-500 uppercase tracking-wider mb-0.5">
+              Cours
+            </div>
+            <div className="font-semibold text-slate-800 text-sm leading-tight truncate">
+              {data.fullname}
+            </div>
+            <div className="text-xs text-slate-400 mt-0.5">{data.shortname}</div>
+          </div>
+        </div>
+
+        {/* Footer chips */}
+        <div className="flex items-center gap-1.5 mt-3 pt-3 border-t border-slate-100">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-50 text-blue-600">
+            {FORMAT_LABELS[data.format] ?? data.format}
+          </span>
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+              data.visible ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-400'
+            }`}
+          >
+            {data.visible ? 'Visible' : 'Masqué'}
+          </span>
+        </div>
+      </div>
+
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="!w-3 !h-3 !bg-blue-400 !border-2 !border-white !shadow-sm"
+      />
+    </div>
+  );
+}
+
+export const CourseNode = memo(CourseNodeComponent);

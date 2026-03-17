@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: #0f172a;
+  }
+}
+
+/* ReactFlow overrides */
+.react-flow__controls {
+  @apply shadow-lg rounded-xl border border-white/10 overflow-hidden bg-white/90 backdrop-blur-sm;
+}
+
+.react-flow__controls-button {
+  @apply border-white/10 hover:bg-slate-50 transition-colors;
+}
+
+.react-flow__minimap {
+  @apply rounded-xl shadow-lg border border-white/20 overflow-hidden;
+}
+
+.react-flow__edge-path {
+  stroke-width: 2;
+}
+
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #6366f1;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* Context menu animation */
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.context-menu {
+  animation: fadeInScale 0.12s ease-out forwards;
+}
+
+/* Node selected ring */
+.react-flow__node.selected > div {
+  @apply ring-2 ring-indigo-500 ring-offset-1;
+}
