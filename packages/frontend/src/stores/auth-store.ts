@@ -19,12 +19,20 @@ export const useAuthStore = create<AuthState>((set) => ({
   loading: true,
 
   initialize: () => {
-    // Restore session from storage
+    // Safety timeout — if Supabase doesn't respond in 5s, show auth page
+    const timeout = setTimeout(() => {
+      console.warn('[kaggu] Supabase init timeout — falling back to auth page');
+      set({ loading: false });
+    }, 5000);
+
     supabase.auth.getSession().then(({ data: { session } }) => {
+      clearTimeout(timeout);
       set({ session, user: session?.user ?? null, loading: false });
+    }).catch(() => {
+      clearTimeout(timeout);
+      set({ loading: false });
     });
 
-    // Keep in sync with Supabase auth state changes
     supabase.auth.onAuthStateChange((_event, session) => {
       set({ session, user: session?.user ?? null, loading: false });
     });
