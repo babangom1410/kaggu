@@ -1,6 +1,9 @@
 import { supabase } from './supabase';
 
-const API_BASE = import.meta.env.VITE_API_URL ?? '/api';
+// In production VITE_API_URL = https://kaggu-api.app.senelit.pro
+// In dev, the Vite proxy handles /api → localhost:3001
+const origin = import.meta.env.VITE_API_URL ?? '';
+const API_BASE = origin ? `${origin}/api` : '/api';
 
 async function getAuthHeaders(): Promise<HeadersInit> {
   const {
@@ -19,6 +22,15 @@ async function request<T>(
   try {
     const headers = await getAuthHeaders();
     const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
+
+    // Guard against HTML error pages (nginx 502, Coolify proxy errors, etc.)
+    const contentType = res.headers.get('content-type') ?? '';
+    if (!contentType.includes('application/json')) {
+      const text = await res.text();
+      console.error('[api] Non-JSON response:', res.status, text.slice(0, 200));
+      return { data: null, error: `Server error (${res.status})` };
+    }
+
     const json = await res.json();
     if (!res.ok) return { data: null, error: json.error ?? `HTTP ${res.status}` };
     return { data: json.data as T, error: null };
