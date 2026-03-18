@@ -8,7 +8,7 @@ import {
   applyEdgeChanges,
   applyNodeChanges,
 } from 'reactflow';
-import type { MindmapNode, MindmapEdge, MindmapNodeData } from '@/types/mindmap.types';
+import type { MindmapNode, MindmapEdge, MindmapNodeData, MoodleConfig } from '@/types/mindmap.types';
 
 const HISTORY_LIMIT = 50;
 
@@ -25,10 +25,12 @@ interface MindmapState {
   nodes: MindmapNode[];
   edges: MindmapEdge[];
   projectName: string;
+  moodleConfig: MoodleConfig | null;
 
   // Session-only state
   projectId: string | null;
   selectedNodeId: string | null;
+  moodlePanelOpen: boolean;
   past: HistorySnapshot[];
   future: HistorySnapshot[];
   saveStatus: SaveStatus;
@@ -50,8 +52,12 @@ interface MindmapState {
 
   // Project
   setProjectName: (name: string) => void;
-  loadProject: (id: string, name: string, nodes: MindmapNode[], edges: MindmapEdge[]) => void;
+  loadProject: (id: string, name: string, nodes: MindmapNode[], edges: MindmapEdge[], moodleConfig?: MoodleConfig | null) => void;
   setSyncStatus: (status: SyncStatus) => void;
+
+  // Moodle
+  setMoodleConfig: (config: MoodleConfig | null) => void;
+  setMoodlePanelOpen: (open: boolean) => void;
 
   // History
   undo: () => void;
@@ -111,8 +117,10 @@ export const useMindmapStore = create<MindmapState>()(
         nodes: [DEFAULT_COURSE_NODE],
         edges: [],
         projectName: 'Nouveau projet',
+        moodleConfig: null,
         projectId: null,
         selectedNodeId: null,
+        moodlePanelOpen: false,
         past: [],
         future: [],
         saveStatus: 'saved',
@@ -198,11 +206,18 @@ export const useMindmapStore = create<MindmapState>()(
           markDirty();
         },
 
-        loadProject: (id, name, nodes, edges) => {
-          set({ projectId: id, projectName: name, nodes, edges, past: [], future: [], syncStatus: 'synced' });
+        loadProject: (id, name, nodes, edges, moodleConfig) => {
+          set({ projectId: id, projectName: name, nodes, edges, moodleConfig: moodleConfig ?? null, past: [], future: [], syncStatus: 'synced' });
         },
 
         setSyncStatus: (status) => set({ syncStatus: status }),
+
+        setMoodleConfig: (config) => {
+          set({ moodleConfig: config });
+          markDirty();
+        },
+
+        setMoodlePanelOpen: (open) => set({ moodlePanelOpen: open }),
 
         undo: () => {
           const { past, nodes, edges, future } = get();
@@ -254,6 +269,7 @@ export const useMindmapStore = create<MindmapState>()(
         edges: state.edges,
         projectName: state.projectName,
         projectId: state.projectId,
+        moodleConfig: state.moodleConfig,
       }),
     },
   ),

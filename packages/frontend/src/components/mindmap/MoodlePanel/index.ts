@@ -1,0 +1,1 @@
+export { MoodlePanel } from './MoodlePanel';

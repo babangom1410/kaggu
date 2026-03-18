@@ -11,7 +11,7 @@ const DEBOUNCE_MS = 2000;
  */
 export function useAutoSave() {
   const user = useAuthStore((s) => s.user);
-  const { nodes, edges, projectName, projectId, setSyncStatus } = useMindmapStore();
+  const { nodes, edges, projectName, projectId, moodleConfig, setSyncStatus } = useMindmapStore();
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -26,6 +26,7 @@ export function useAutoSave() {
         name: projectName,
         nodes,
         edges,
+        moodle_config: moodleConfig ?? null,
       });
       setSyncStatus(error ? 'error' : 'synced');
     }, DEBOUNCE_MS);
@@ -33,7 +34,7 @@ export function useAutoSave() {
     return () => {
       if (timerRef.current) clearTimeout(timerRef.current);
     };
-  // nodes/edges/projectName change → restart timer
+  // nodes/edges/projectName/moodleConfig change → restart timer
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nodes, edges, projectName, user, projectId]);
+  }, [nodes, edges, projectName, moodleConfig, user, projectId]);
 }

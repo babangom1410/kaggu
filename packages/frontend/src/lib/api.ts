@@ -46,10 +46,23 @@ export interface ProjectSummary {
   updated_at: string;
 }
 
+export interface MoodleConfigApi {
+  url: string;
+  token: string;
+  courseId: number | null;
+  siteInfo?: {
+    sitename: string;
+    username: string;
+    moodleVersion: string;
+    release: string;
+    hasPlugin: boolean;
+  };
+}
+
 export interface ProjectFull extends ProjectSummary {
   nodes: unknown[];
   edges: unknown[];
-  moodle_config: unknown | null;
+  moodle_config: MoodleConfigApi | null;
 }
 
 export const projectsApi = {
@@ -63,7 +76,7 @@ export const projectsApi = {
       body: JSON.stringify({ name, nodes, edges }),
     }),
 
-  update: (id: string, payload: Partial<Pick<ProjectFull, 'name' | 'nodes' | 'edges'>>) =>
+  update: (id: string, payload: Partial<Pick<ProjectFull, 'name' | 'nodes' | 'edges' | 'moodle_config'>>) =>
     request<ProjectFull>(`/v1/projects/${id}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
@@ -71,4 +84,70 @@ export const projectsApi = {
 
   delete: (id: string) =>
     request<null>(`/v1/projects/${id}`, { method: 'DELETE' }),
+};
+
+// ─── Moodle API ───────────────────────────────────────────────────────────────
+
+export interface MoodleConnectResult {
+  sitename: string;
+  username: string;
+  moodleVersion: string;
+  release: string;
+  hasPlugin: boolean;
+  missingFunctions: string[];
+}
+
+export interface MoodleCategory {
+  id: number;
+  name: string;
+  parent: number;
+  coursecount: number;
+  depth: number;
+  path: string;
+}
+
+export interface ExportError {
+  nodeId: string;
+  nodeName: string;
+  error: string;
+}
+
+export interface ExportReport {
+  courseId: number;
+  courseUrl: string;
+  courseName: string;
+  created: number;
+  updated: number;
+  skipped: number;
+  errors: ExportError[];
+}
+
+export interface ImportResult {
+  nodes: unknown[];
+  edges: unknown[];
+}
+
+export const moodleApi = {
+  connect: (url: string, token: string) =>
+    request<MoodleConnectResult>('/v1/moodle/connect', {
+      method: 'POST',
+      body: JSON.stringify({ url, token }),
+    }),
+
+  categories: (url: string, token: string) =>
+    request<MoodleCategory[]>('/v1/moodle/categories', {
+      method: 'POST',
+      body: JSON.stringify({ url, token }),
+    }),
+
+  exportProject: (projectId: string) =>
+    request<ExportReport>(`/v1/moodle/projects/${projectId}/export`, {
+      method: 'POST',
+    }),
+
+  importFromMoodle: (projectId: string, moodleCourseId: number) =>
+    request<ImportResult>(`/v1/moodle/projects/${projectId}/import`, {
+      method: 'POST',
+      body: JSON.stringify({ moodleCourseId }),
+    }),
 };

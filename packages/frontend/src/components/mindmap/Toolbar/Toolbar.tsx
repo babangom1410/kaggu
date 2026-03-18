@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMindmapStore, generateNodeId } from '@/stores/mindmap-store';
 import { useAuthStore } from '@/stores/auth-store';
 import type { SyncStatus } from '@/stores/mindmap-store';
+import { ExportModal } from '@/components/mindmap/ExportModal';
 
 function Logo() {
   return (
@@ -127,10 +128,16 @@ function UserMenu() {
 }
 
 export function Toolbar() {
-  const { projectName, setProjectName, addNode, nodes, edges, undo, redo, canUndo, canRedo, syncStatus } =
-    useMindmapStore();
+  const {
+    projectName, setProjectName, addNode, nodes, edges,
+    undo, redo, canUndo, canRedo, syncStatus,
+    moodleConfig, moodlePanelOpen, setMoodlePanelOpen,
+  } = useMindmapStore();
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(projectName);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+
+  const isMoodleConnected = !!(moodleConfig?.url && moodleConfig?.token);
 
   const handleAddSection = () => {
     const courseNode = nodes.find((n) => n.type === 'course');
@@ -255,12 +262,36 @@ export function Toolbar() {
 
       <div className="h-5 w-px bg-white/10 mx-1" />
 
+      {/* Moodle connect button */}
+      <button
+        onClick={() => setMoodlePanelOpen(!moodlePanelOpen)}
+        title={isMoodleConnected ? `Moodle : ${moodleConfig?.siteInfo?.sitename ?? 'Connecté'}` : 'Configurer Moodle'}
+        className={`
+          flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+          border transition-all duration-150
+          ${isMoodleConnected
+            ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/25'
+            : 'bg-white/5 text-slate-400 border-white/8 hover:bg-white/10 hover:text-slate-200'
+          }
+        `}
+      >
+        <span className="text-sm">🔌</span>
+        {isMoodleConnected ? moodleConfig?.siteInfo?.sitename ?? 'Moodle' : 'Moodle'}
+      </button>
+
       {/* Export Moodle */}
       <button
-        disabled
-        title="Export Moodle (Phase 3)"
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
-                   bg-white/5 text-slate-600 border border-white/8 cursor-not-allowed"
+        onClick={() => setExportModalOpen(true)}
+        disabled={!isMoodleConnected}
+        title={isMoodleConnected ? 'Exporter vers Moodle' : 'Configurez la connexion Moodle d\'abord'}
+        className={`
+          flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border
+          transition-all duration-150
+          ${isMoodleConnected
+            ? 'bg-orange-500/15 text-orange-400 border-orange-500/20 hover:bg-orange-500/25 hover:text-orange-300'
+            : 'bg-white/5 text-slate-600 border-white/8 cursor-not-allowed'
+          }
+        `}
       >
         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
           <path
@@ -271,11 +302,14 @@ export function Toolbar() {
             strokeLinejoin="round"
           />
         </svg>
-        Export Moodle
+        Export
       </button>
 
       {/* User menu */}
       <UserMenu />
+
+      {/* Export modal */}
+      {exportModalOpen && <ExportModal onClose={() => setExportModalOpen(false)} />}
     </header>
   );
 }

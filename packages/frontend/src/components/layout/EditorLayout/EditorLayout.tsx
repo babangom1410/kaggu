@@ -3,6 +3,7 @@ import { useAutoSave } from '@/hooks/useAutoSave';
 import { Toolbar } from '@/components/mindmap/Toolbar';
 import { MindmapEditor } from '@/components/mindmap/MindmapEditor';
 import { PropertiesPanel } from '@/components/mindmap/PropertiesPanel';
+import { MoodlePanel } from '@/components/mindmap/MoodlePanel';
 import { useMindmapStore } from '@/stores/mindmap-store';
 
 function ProjectLoader({ children }: { children: React.ReactNode }) {
@@ -32,6 +33,11 @@ function ProjectLoader({ children }: { children: React.ReactNode }) {
 
 export function EditorLayout() {
   const selectedNodeId = useMindmapStore((s) => s.selectedNodeId);
+  const moodlePanelOpen = useMindmapStore((s) => s.moodlePanelOpen);
+
+  // Only one side panel at a time: Moodle panel takes precedence when open
+  const showProperties = selectedNodeId && !moodlePanelOpen;
+  const showMoodle = moodlePanelOpen;
 
   return (
     <ProjectLoader>
@@ -43,14 +49,26 @@ export function EditorLayout() {
             <MindmapEditor />
           </div>
 
+          {/* Properties panel */}
           <div
             className={`
               flex-shrink-0 border-l border-slate-700/50 bg-slate-900 overflow-hidden
               transition-all duration-200 ease-in-out
-              ${selectedNodeId ? 'w-[340px]' : 'w-0'}
+              ${showProperties ? 'w-[340px]' : 'w-0'}
             `}
           >
-            {selectedNodeId && <PropertiesPanel nodeId={selectedNodeId} />}
+            {showProperties && <PropertiesPanel nodeId={selectedNodeId} />}
+          </div>
+
+          {/* Moodle panel */}
+          <div
+            className={`
+              flex-shrink-0 border-l border-slate-700/50 bg-slate-900 overflow-hidden
+              transition-all duration-200 ease-in-out
+              ${showMoodle ? 'w-[340px]' : 'w-0'}
+            `}
+          >
+            {showMoodle && <MoodlePanel />}
           </div>
         </div>
       </div>

@@ -107,9 +107,19 @@ export type MindmapEdge = Edge;
 
 // --- Project ---
 
+export interface MoodleSiteInfo {
+  sitename: string;
+  username: string;
+  moodleVersion: string;
+  release: string;
+  hasPlugin: boolean;
+}
+
 export interface MoodleConfig {
   url: string;
+  token: string;
   courseId: number | null;
+  siteInfo?: MoodleSiteInfo;
 }
 
 export interface Project {

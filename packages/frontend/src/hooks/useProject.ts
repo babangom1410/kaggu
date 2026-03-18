@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { projectsApi } from '@/lib/api';
 import { useMindmapStore } from '@/stores/mindmap-store';
 import { useAuthStore } from '@/stores/auth-store';
-import type { MindmapNode, MindmapEdge } from '@/types/mindmap.types';
+import type { MindmapNode, MindmapEdge, MoodleConfig } from '@/types/mindmap.types';
 
 /**
  * On mount (after login):
@@ -40,7 +40,13 @@ export function useProject() {
           setReady(true);
           return;
         }
-        loadProject(project.id, project.name, project.nodes as MindmapNode[], project.edges as MindmapEdge[]);
+        loadProject(
+          project.id,
+          project.name,
+          project.nodes as MindmapNode[],
+          project.edges as MindmapEdge[],
+          project.moodle_config as MoodleConfig | null,
+        );
       } else {
         // First login — persist current local state to Supabase
         const { data: created, error: createErr } = await projectsApi.create(projectName, nodes, edges);
