@@ -17,7 +17,7 @@ export class MoodleError extends Error {
 
 // Flatten a nested JS object to Moodle's URL-encoded param format.
 // { courses: [{ fullname: 'x' }] } → "courses[0][fullname]=x"
-function flattenToParams(obj: Record<string, unknown>): URLSearchParams {
+function flattenToParams(obj: object): URLSearchParams {
   const params = new URLSearchParams();
 
   function flatten(value: unknown, key: string) {
@@ -41,7 +41,7 @@ function flattenToParams(obj: Record<string, unknown>): URLSearchParams {
 export async function moodleCall<T>(
   config: MoodleConnectionConfig,
   wsfunction: string,
-  params: Record<string, unknown> = {},
+  params: object = {},
 ): Promise<T> {
   const body = flattenToParams(params);
   body.append('wstoken', config.token);
