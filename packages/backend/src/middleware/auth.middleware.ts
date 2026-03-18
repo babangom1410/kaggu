@@ -19,8 +19,7 @@ export async function authMiddleware(
   } = await supabase.auth.getUser(token);
 
   if (error || !user) {
-    console.error('[auth] getUser failed:', error?.message, error?.status, error?.name);
-    res.status(401).json({ error: 'Invalid or expired token', detail: error?.message });
+    res.status(401).json({ error: 'Invalid or expired token' });
     return;
   }
 
