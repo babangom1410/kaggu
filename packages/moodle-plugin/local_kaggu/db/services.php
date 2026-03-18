@@ -47,7 +47,15 @@ $functions = [
 
 $services = [
     'Kàggu Web Services' => [
-        'functions'       => array_keys($functions),
+        'functions' => array_merge(array_keys($functions), [
+            // Native Moodle functions required by Kàggu
+            'core_webservice_get_site_info',
+            'core_course_create_courses',
+            'core_course_update_courses',
+            'core_course_get_contents',
+            'core_course_get_categories',
+            'core_course_get_courses',
+        ]),
         'restrictedusers' => 0,
         'enabled'         => 1,
         'shortname'       => 'local_kaggu',
