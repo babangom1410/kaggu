@@ -243,11 +243,22 @@ export interface KagguModuleResult {
   instanceid: number;
 }
 
+// Convert options object → [{name, value}] array expected by Moodle external functions
+function toOptionsArray(options: Record<string, unknown>): Array<{ name: string; value: string }> {
+  return Object.entries(options)
+    .filter(([, v]) => v !== undefined && v !== null)
+    .map(([name, value]) => ({ name, value: String(value) }));
+}
+
 export async function createModule(
   config: MoodleConnectionConfig,
   moduleData: KagguModuleInput,
 ): Promise<KagguModuleResult> {
-  return moodleCall<KagguModuleResult>(config, 'local_kaggu_create_module', moduleData);
+  const { options, ...rest } = moduleData;
+  return moodleCall<KagguModuleResult>(config, 'local_kaggu_create_module', {
+    ...rest,
+    options: toOptionsArray(options),
+  });
 }
 
 export async function updateModule(
@@ -255,7 +266,12 @@ export async function updateModule(
   cmid: number,
   moduleData: Partial<KagguModuleInput>,
 ): Promise<void> {
-  await moodleCall(config, 'local_kaggu_update_module', { cmid, ...moduleData });
+  const { options, ...rest } = moduleData;
+  await moodleCall(config, 'local_kaggu_update_module', {
+    cmid,
+    ...rest,
+    ...(options ? { options: toOptionsArray(options) } : {}),
+  });
 }
 
 export async function deleteModule(
