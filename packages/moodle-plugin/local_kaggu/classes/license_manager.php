@@ -79,6 +79,13 @@ class license_manager {
                 return ['valid' => true, 'plan' => 'degraded', 'message' => 'License server unreachable'];
             }
 
+            // Treat any HTTP error (404, 500…) as degraded mode — license server not ready yet
+            $httpcode = $curl->get_info()['http_code'] ?? 0;
+            if ($httpcode === 0 || $httpcode >= 400) {
+                debugging('local_kaggu: License server returned HTTP ' . $httpcode . ' — degraded mode', DEBUG_DEVELOPER);
+                return ['valid' => true, 'plan' => 'degraded', 'message' => 'License server unavailable — degraded mode'];
+            }
+
             $data = json_decode($response, true);
 
             if (!isset($data['data'])) {
