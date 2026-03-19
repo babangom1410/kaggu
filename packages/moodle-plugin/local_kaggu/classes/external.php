@@ -144,9 +144,6 @@ class external extends \external_api {
             $opts[$opt['name']] = $opt['value'];
         }
 
-        // Ensure section exists
-        course_create_sections_if_missing($course, $params['sectionnum']);
-
         // Require module lib
         $modlibpath = $CFG->dirroot . '/mod/' . $params['moduletype'] . '/lib.php';
         if (!file_exists($modlibpath)) {
@@ -154,41 +151,73 @@ class external extends \external_api {
         }
         require_once($modlibpath);
 
-        // Build module info
+        // Get or create section record
+        $section = $DB->get_record('course_sections', [
+            'course'  => $params['courseid'],
+            'section' => $params['sectionnum'],
+        ]);
+        if (!$section) {
+            course_create_section($params['courseid'], $params['sectionnum'], true);
+            $section = $DB->get_record('course_sections', [
+                'course'  => $params['courseid'],
+                'section' => $params['sectionnum'],
+            ], '*', MUST_EXIST);
+        }
+
+        // Get module type record
+        $module = $DB->get_record('modules', ['name' => $params['moduletype']], '*', MUST_EXIST);
+
+        // Build module info for the instance
         $moduleinfo = new \stdClass();
-        $moduleinfo->modulename         = $params['moduletype'];
-        $moduleinfo->course             = $params['courseid'];
-        $moduleinfo->section            = $params['sectionnum'];
-        $moduleinfo->name               = $params['name'];
-        $moduleinfo->intro              = $params['intro'] ?: '<p></p>';
-        $moduleinfo->introformat        = FORMAT_HTML;
-        $moduleinfo->visible            = $params['visible'];
-        $moduleinfo->visibleold         = $params['visible'];
-        // Required course_modules fields
-        $moduleinfo->cmidnumber         = '';
-        $moduleinfo->groupmode          = 0;
-        $moduleinfo->groupingid         = 0;
-        $moduleinfo->completion         = 0;
-        $moduleinfo->completionview     = 0;
-        $moduleinfo->completionexpected = 0;
-        $moduleinfo->availability       = null;
-        $moduleinfo->showdescription    = 0;
-        $moduleinfo->lang               = '';
+        $moduleinfo->course      = $params['courseid'];
+        $moduleinfo->name        = $params['name'];
+        $moduleinfo->intro       = $params['intro'] ?: '<p></p>';
+        $moduleinfo->introformat = FORMAT_HTML;
+        $moduleinfo->visible     = $params['visible'];
 
         // Module-specific fields
         self::apply_module_options($moduleinfo, $params['moduletype'], $opts);
 
-        // Create via add_moduleinfo
-        $moduleinfo = add_moduleinfo($moduleinfo, $course);
-        $cmid = (int) $moduleinfo->coursemodule;
+        // Call {module}_add_instance() directly — same as add_moduleinfo() does internally
+        $addfunc = $params['moduletype'] . '_add_instance';
+        $instanceid = $addfunc($moduleinfo, null);
+        if (!$instanceid) {
+            throw new \moodle_exception('error_create_module', 'local_kaggu', '', 'Module instance creation failed');
+        }
 
-        // Get instance ID
-        $cm = $DB->get_record('course_modules', ['id' => $cmid], 'instance', MUST_EXIST);
+        // Create course_modules record manually
+        $cm = new \stdClass();
+        $cm->course             = $params['courseid'];
+        $cm->module             = $module->id;
+        $cm->instance           = (int) $instanceid;
+        $cm->section            = $section->id;
+        $cm->visible            = $params['visible'];
+        $cm->visibleold         = $params['visible'];
+        $cm->cmidnumber         = '';
+        $cm->groupmode          = 0;
+        $cm->groupingid         = 0;
+        $cm->completion         = 0;
+        $cm->completionview     = 0;
+        $cm->completionexpected = 0;
+        $cm->showdescription    = 0;
+        $cm->added              = time();
+        $cmid = (int) $DB->insert_record('course_modules', $cm);
+
+        // Create module context
+        \context_module::instance($cmid);
+
+        // Add to section sequence
+        $sequence = empty($section->sequence) ? [] : explode(',', $section->sequence);
+        $sequence[] = $cmid;
+        $DB->set_field('course_sections', 'sequence', implode(',', $sequence), ['id' => $section->id]);
+
+        // Rebuild course cache
+        rebuild_course_cache($params['courseid'], true);
 
         return [
             'cmid'       => $cmid,
             'moduletype' => $params['moduletype'],
-            'instanceid' => (int) $cm->instance,
+            'instanceid' => (int) $instanceid,
         ];
     }
 

@@ -7,14 +7,18 @@ if ($hassiteconfig) {
     $ADMIN->add('localplugins', $settings);
 
     // License key field
-    $settings->add(new admin_setting_configtext(
+    $licensekey_setting = new admin_setting_configtext(
         'local_kaggu/licensekey',
         get_string('licensekey', 'local_kaggu'),
         get_string('licensekey_desc', 'local_kaggu'),
         '',
         PARAM_TEXT,
         60
-    ));
+    );
+    $licensekey_setting->set_updatedcallback(function() {
+        (new \local_kaggu\license_manager())->invalidate_cache();
+    });
+    $settings->add($licensekey_setting);
 
     // License server URL
     $settings->add(new admin_setting_configtext(
