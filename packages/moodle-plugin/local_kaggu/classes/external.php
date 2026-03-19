@@ -156,14 +156,24 @@ class external extends \external_api {
 
         // Build module info
         $moduleinfo = new \stdClass();
-        $moduleinfo->modulename    = $params['moduletype'];
-        $moduleinfo->course        = $params['courseid'];
-        $moduleinfo->section       = $params['sectionnum'];
-        $moduleinfo->name          = $params['name'];
-        $moduleinfo->intro         = $params['intro'];
-        $moduleinfo->introformat   = FORMAT_HTML;
-        $moduleinfo->visible       = $params['visible'];
-        $moduleinfo->visibleold    = $params['visible'];
+        $moduleinfo->modulename         = $params['moduletype'];
+        $moduleinfo->course             = $params['courseid'];
+        $moduleinfo->section            = $params['sectionnum'];
+        $moduleinfo->name               = $params['name'];
+        $moduleinfo->intro              = $params['intro'] ?: '<p></p>';
+        $moduleinfo->introformat        = FORMAT_HTML;
+        $moduleinfo->visible            = $params['visible'];
+        $moduleinfo->visibleold         = $params['visible'];
+        // Required course_modules fields
+        $moduleinfo->cmidnumber         = '';
+        $moduleinfo->groupmode          = 0;
+        $moduleinfo->groupingid         = 0;
+        $moduleinfo->completion         = 0;
+        $moduleinfo->completionview     = 0;
+        $moduleinfo->completionexpected = 0;
+        $moduleinfo->availability       = null;
+        $moduleinfo->showdescription    = 0;
+        $moduleinfo->lang               = '';
 
         // Module-specific fields
         self::apply_module_options($moduleinfo, $params['moduletype'], $opts);
