@@ -230,6 +230,14 @@ class external extends \external_api {
                 $info->gradingduedate     = 0;
                 $info->requiresubmissionstatement = 0;
                 $info->sendstudentnotifications   = 1;
+                // Moodle 5.x required fields
+                $info->teamsubmission                   = 0;
+                $info->requireallteammemberssubmit      = 0;
+                $info->blindmarking                     = 0;
+                $info->markingworkflow                  = 0;
+                $info->markingallocation                = 0;
+                $info->attemptreopenmethod              = 'none';
+                $info->maxattempts                      = -1;
 
                 $subtype = $opts['submissiontype'] ?? 'online_text';
                 $info->assignsubmission_onlinetext_enabled =
@@ -255,6 +263,12 @@ class external extends \external_api {
                 $info->preferredbehaviour = 'deferredfeedback';
                 $info->decimalpoints      = 2;
                 $info->questiondecimalpoints = -1;
+                // Moodle 5.x required fields
+                $info->password           = '';
+                $info->subnet             = '';
+                $info->delay1             = 0;
+                $info->delay2             = 0;
+                $info->browsersecurity    = '-';
                 // Standard review bit flags
                 $info->reviewattempt      = 69904;
                 $info->reviewcorrectness  = 4368;
