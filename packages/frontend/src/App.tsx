@@ -1,7 +1,14 @@
 import { useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/auth-store';
 import { AuthPage } from './components/auth/AuthPage';
 import { EditorLayout } from './components/layout/EditorLayout';
+import { AdminLayout } from './components/admin/AdminLayout';
+import { AdminDashboard } from './components/admin/AdminDashboard';
+import { OrganizationList } from './components/admin/OrganizationList';
+import { LicenseList } from './components/admin/LicenseList';
+import { PlanManager } from './components/admin/PlanManager';
+import { UsageAnalytics } from './components/admin/UsageAnalytics';
 
 function LoadingScreen() {
   return (
@@ -25,7 +32,22 @@ function App() {
 
   if (loading) return <LoadingScreen />;
   if (!user) return <AuthPage />;
-  return <EditorLayout />;
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<EditorLayout />} />
+        <Route path="/admin" element={<AdminLayout />}>
+          <Route index element={<AdminDashboard />} />
+          <Route path="organizations" element={<OrganizationList />} />
+          <Route path="licenses" element={<LicenseList />} />
+          <Route path="plans" element={<PlanManager />} />
+          <Route path="usage" element={<UsageAnalytics />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
 }
 
 export default App;
