@@ -190,23 +190,23 @@ class external extends \external_api {
         // Module-specific fields
         self::apply_module_options($moduleinfo, $params['moduletype'], $opts);
 
-        // Use add_moduleinfo() — the official Moodle API, wrapping everything in a trace-exposing catch
         try {
             $moduleinfo = add_moduleinfo($moduleinfo, $course);
+            $cmid = (int) ($moduleinfo->coursemodule ?? 0);
+            if (!$cmid) {
+                throw new \Exception('add_moduleinfo returned no coursemodule. Keys: ' . implode(',', array_keys((array)$moduleinfo)));
+            }
+            $cm = $DB->get_record('course_modules', ['id' => $cmid], 'instance', MUST_EXIST);
+            return [
+                'cmid'       => $cmid,
+                'moduletype' => $params['moduletype'],
+                'instanceid' => (int) $cm->instance,
+            ];
         } catch (\Exception $e) {
-            $trace = array_slice(explode("\n", $e->getTraceAsString()), 0, 6);
-            throw new \moodle_exception('error_create_module', 'local_kaggu', '',
-                get_class($e) . ': ' . $e->getMessage() . ' || ' . implode(' || ', $trace));
+            $trace = array_slice(explode("\n", $e->getTraceAsString()), 0, 4);
+            throw new \moodle_exception('error_module_type', 'local_kaggu', '',
+                get_class($e) . ': ' . $e->getMessage() . ' @ ' . implode(' @ ', $trace));
         }
-
-        $cmid = (int) $moduleinfo->coursemodule;
-        $cm   = $DB->get_record('course_modules', ['id' => $cmid], 'instance', MUST_EXIST);
-
-        return [
-            'cmid'       => $cmid,
-            'moduletype' => $params['moduletype'],
-            'instanceid' => (int) $cm->instance,
-        ];
     }
 
     /**
