@@ -205,7 +205,14 @@ class external extends \external_api {
 
         // 4. Call {module}_add_instance() — now context_module::instance() will resolve correctly
         $addfunc = $params['moduletype'] . '_add_instance';
-        $instanceid = $addfunc($moduleinfo, null);
+        try {
+            $instanceid = $addfunc($moduleinfo, null);
+        } catch (\Exception $e) {
+            $DB->delete_records('course_modules', ['id' => $cmid]);
+            $trace = array_slice(explode("\n", $e->getTraceAsString()), 0, 5);
+            throw new \moodle_exception('error_create_module', 'local_kaggu', '',
+                $e->getMessage() . ' | in: ' . implode(' | ', $trace));
+        }
         if (!$instanceid) {
             $DB->delete_records('course_modules', ['id' => $cmid]);
             throw new \moodle_exception('error_create_module', 'local_kaggu', '', 'Module instance creation failed');
