@@ -1,29 +1,20 @@
+import 'dotenv/config';
 import type { Knex } from 'knex';
 
+const pgConfig: Knex.Config = {
+  client: 'pg',
+  connection: process.env.DATABASE_URL,
+  migrations: {
+    directory: './src/migrations',
+  },
+  seeds: {
+    directory: './src/seeds',
+  },
+};
+
 const config: Record<string, Knex.Config> = {
-  development: {
-    client: 'better-sqlite3',
-    connection: {
-      filename: './dev.sqlite3',
-    },
-    useNullAsDefault: true,
-    migrations: {
-      directory: './src/migrations',
-    },
-    seeds: {
-      directory: './src/seeds',
-    },
-  },
-  production: {
-    client: 'pg',
-    connection: process.env.DATABASE_URL,
-    migrations: {
-      directory: './src/migrations',
-    },
-    seeds: {
-      directory: './src/seeds',
-    },
-  },
+  development: pgConfig,
+  production: pgConfig,
 };
 
 export default config;

@@ -264,6 +264,7 @@ class external extends \external_api {
                 $info->decimalpoints      = 2;
                 $info->questiondecimalpoints = -1;
                 // Moodle 5.x required fields
+                $info->quizpassword       = '';  // form field name; quiz_add_instance maps it to 'password' column
                 $info->password           = '';
                 $info->subnet             = '';
                 $info->delay1             = 0;
