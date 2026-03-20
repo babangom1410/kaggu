@@ -167,72 +167,45 @@ class external extends \external_api {
         // Get module type record
         $module = $DB->get_record('modules', ['name' => $params['moduletype']], '*', MUST_EXIST);
 
-        // In Moodle 5.x, context_module::instance(0) no longer works, so we must create
-        // the course_modules record FIRST, then call {module}_add_instance() with the real context.
-
-        // 1. Create placeholder course_modules record (instance=0)
-        $cm = new \stdClass();
-        $cm->course             = $params['courseid'];
-        $cm->module             = $module->id;
-        $cm->instance           = 0;
-        $cm->section            = $section->id;
-        $cm->visible            = $params['visible'];
-        $cm->visibleold         = $params['visible'];
-        $cm->cmidnumber         = '';
-        $cm->groupmode          = 0;
-        $cm->groupingid         = 0;
-        $cm->completion         = 0;
-        $cm->completionview     = 0;
-        $cm->completionexpected = 0;
-        $cm->showdescription    = 0;
-        $cm->added              = time();
-        $cmid = (int) $DB->insert_record('course_modules', $cm);
-
-        // 2. Create real module context so {module}_add_instance() can use it
-        \context_module::instance($cmid);
-
-        // 3. Build module info for the instance
+        // Build module info
         $moduleinfo = new \stdClass();
-        $moduleinfo->course      = $params['courseid'];
-        $moduleinfo->coursemodule = $cmid;
-        $moduleinfo->name        = $params['name'];
-        $moduleinfo->intro       = $params['intro'] ?: '<p></p>';
-        $moduleinfo->introformat = FORMAT_HTML;
-        $moduleinfo->visible     = $params['visible'];
+        $moduleinfo->modulename     = $params['moduletype'];
+        $moduleinfo->course         = $params['courseid'];
+        $moduleinfo->section        = $params['sectionnum'];
+        $moduleinfo->name           = $params['name'];
+        $moduleinfo->intro          = $params['intro'] ?: '<p></p>';
+        $moduleinfo->introformat    = FORMAT_HTML;
+        $moduleinfo->visible        = $params['visible'];
+        $moduleinfo->visibleold     = $params['visible'];
+        $moduleinfo->cmidnumber     = '';
+        $moduleinfo->groupmode      = 0;
+        $moduleinfo->groupingid     = 0;
+        $moduleinfo->completion     = 0;
+        $moduleinfo->completionview = 0;
+        $moduleinfo->completionexpected = 0;
+        $moduleinfo->availability   = null;
+        $moduleinfo->showdescription = 0;
+        $moduleinfo->lang           = '';
 
         // Module-specific fields
         self::apply_module_options($moduleinfo, $params['moduletype'], $opts);
 
-        // 4. Call {module}_add_instance() — now context_module::instance() will resolve correctly
-        $addfunc = $params['moduletype'] . '_add_instance';
+        // Use add_moduleinfo() — the official Moodle API, wrapping everything in a trace-exposing catch
         try {
-            $instanceid = $addfunc($moduleinfo, null);
+            $moduleinfo = add_moduleinfo($moduleinfo, $course);
         } catch (\Exception $e) {
-            $DB->delete_records('course_modules', ['id' => $cmid]);
-            $trace = array_slice(explode("\n", $e->getTraceAsString()), 0, 5);
+            $trace = array_slice(explode("\n", $e->getTraceAsString()), 0, 6);
             throw new \moodle_exception('error_create_module', 'local_kaggu', '',
-                $e->getMessage() . ' | in: ' . implode(' | ', $trace));
-        }
-        if (!$instanceid) {
-            $DB->delete_records('course_modules', ['id' => $cmid]);
-            throw new \moodle_exception('error_create_module', 'local_kaggu', '', 'Module instance creation failed');
+                get_class($e) . ': ' . $e->getMessage() . ' || ' . implode(' || ', $trace));
         }
 
-        // 5. Update CM record with real instance ID
-        $DB->set_field('course_modules', 'instance', (int) $instanceid, ['id' => $cmid]);
-
-        // 6. Add to section sequence
-        $sequence = empty($section->sequence) ? [] : explode(',', $section->sequence);
-        $sequence[] = $cmid;
-        $DB->set_field('course_sections', 'sequence', implode(',', $sequence), ['id' => $section->id]);
-
-        // 7. Rebuild course cache
-        rebuild_course_cache($params['courseid'], true);
+        $cmid = (int) $moduleinfo->coursemodule;
+        $cm   = $DB->get_record('course_modules', ['id' => $cmid], 'instance', MUST_EXIST);
 
         return [
             'cmid'       => $cmid,
             'moduletype' => $params['moduletype'],
-            'instanceid' => (int) $instanceid,
+            'instanceid' => (int) $cm->instance,
         ];
     }
 
