@@ -170,6 +170,7 @@ class external extends \external_api {
         // Build module info
         $moduleinfo = new \stdClass();
         $moduleinfo->modulename     = $params['moduletype'];
+        $moduleinfo->module         = $module->id; // required in Moodle 5.x
         $moduleinfo->course         = $params['courseid'];
         $moduleinfo->section        = $params['sectionnum'];
         $moduleinfo->name           = $params['name'];
@@ -177,15 +178,19 @@ class external extends \external_api {
         $moduleinfo->introformat    = FORMAT_HTML;
         $moduleinfo->visible        = $params['visible'];
         $moduleinfo->visibleold     = $params['visible'];
-        $moduleinfo->cmidnumber     = '';
-        $moduleinfo->groupmode      = 0;
-        $moduleinfo->groupingid     = 0;
-        $moduleinfo->completion     = 0;
-        $moduleinfo->completionview = 0;
-        $moduleinfo->completionexpected = 0;
-        $moduleinfo->availability   = null;
-        $moduleinfo->showdescription = 0;
-        $moduleinfo->lang           = '';
+        $moduleinfo->cmidnumber          = '';
+        $moduleinfo->groupmode           = 0;
+        $moduleinfo->groupingid          = 0;
+        $moduleinfo->completion          = 0;
+        $moduleinfo->completionview      = 0;
+        $moduleinfo->completionexpected  = 0;
+        $moduleinfo->availability        = null;
+        $moduleinfo->showdescription     = 0;
+        $moduleinfo->lang                = '';
+        // Moodle 5.x new fields
+        $moduleinfo->visibleoncoursepage = 1;
+        $moduleinfo->downloadcontent     = 1;
+        $moduleinfo->enabledaiactions    = null;
 
         // Module-specific fields
         self::apply_module_options($moduleinfo, $params['moduletype'], $opts);
