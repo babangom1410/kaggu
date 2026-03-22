@@ -388,10 +388,9 @@ export async function exportProject(
 
       const moduleChecksum = computeChecksum(moduleNode.data);
       const existingModule = mappings.get(moduleNode.id);
-      const completionValue = Number(moduleNode.data.completion ?? 0);
-      const completionFields = completionValue > 0 ? buildCompletionFields(moduleNode.data) : {};
+      const completionFields = buildCompletionFields(moduleNode.data);
       const restrictions = (moduleNode.data.restrictions ?? []) as Restriction[];
-      const availability = buildAvailabilityJson(restrictions, mappings);
+      const availability = buildAvailabilityJson(restrictions, mappings) ?? '';
 
       try {
         if (existingModule?.moodle_id) {
@@ -402,7 +401,7 @@ export async function exportProject(
               visible: moduleNode.data.visible !== false ? 1 : 0,
               options: moduleOpts.options,
               ...completionFields,
-              ...(availability !== null ? { availability } : {}),
+              availability,
             });
             report.updated++;
           }
@@ -417,7 +416,7 @@ export async function exportProject(
             visible: moduleNode.data.visible !== false ? 1 : 0,
             options: moduleOpts.options,
             ...completionFields,
-            ...(availability !== null ? { availability } : {}),
+            ...(availability !== '' ? { availability } : {}),
           });
           report.created++;
           await upsertMapping(moduleNode.id, 'module', result.cmid, moduleChecksum);
@@ -429,8 +428,8 @@ export async function exportProject(
     }
   }
 
-  // Second pass: apply availability restrictions that reference modules created in this export
-  // (needed when a module restricts access based on another module created in the same export)
+  // Second pass: re-apply availability for modules whose restrictions reference
+  // other modules created in the same export run (cmids now resolved).
   for (const sectionNode of sectionNodes) {
     const moduleNodes = sortByPosition(getChildren(sectionNode.id, edges, nodes));
     for (const moduleNode of moduleNodes) {
@@ -441,7 +440,13 @@ export async function exportProject(
       const existingModule = mappings.get(moduleNode.id);
       if (!existingModule?.moodle_id) continue;
       try {
-        await updateModule(config, existingModule.moodle_id, { availability });
+        await updateModule(config, existingModule.moodle_id, {
+          name: String(moduleNode.data.name || 'Untitled'),
+          intro: String(moduleNode.data.description || ''),
+          visible: moduleNode.data.visible !== false ? 1 : 0,
+          ...buildCompletionFields(moduleNode.data),
+          availability,
+        });
       } catch {
         // Non-fatal: availability update failure doesn't block report
       }

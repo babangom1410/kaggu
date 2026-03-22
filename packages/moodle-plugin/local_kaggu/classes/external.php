@@ -391,15 +391,15 @@ class external extends \external_api {
     public static function update_module_parameters(): \external_function_parameters {
         return new \external_function_parameters([
             'cmid'                => new \external_value(PARAM_INT,  'Course module ID'),
-            'name'                => new \external_value(PARAM_TEXT, 'New name', VALUE_OPTIONAL),
-            'intro'               => new \external_value(PARAM_RAW,  'New description', VALUE_OPTIONAL),
-            'visible'             => new \external_value(PARAM_INT,  'Visibility', VALUE_OPTIONAL),
-            'completion'          => new \external_value(PARAM_INT,  'Completion tracking', VALUE_OPTIONAL),
-            'completionview'      => new \external_value(PARAM_INT,  'Must view', VALUE_OPTIONAL),
-            'completionusegrade'  => new \external_value(PARAM_INT,  'Must receive grade', VALUE_OPTIONAL),
-            'completionpassgrade' => new \external_value(PARAM_INT,  'Must pass grade', VALUE_OPTIONAL),
-            'completionexpected'  => new \external_value(PARAM_INT,  'Expected completion timestamp', VALUE_OPTIONAL),
-            'availability'        => new \external_value(PARAM_RAW,  'Availability JSON', VALUE_OPTIONAL),
+            'name'                => new \external_value(PARAM_TEXT, 'New name',                         VALUE_DEFAULT, ''),
+            'intro'               => new \external_value(PARAM_RAW,  'New description',                  VALUE_DEFAULT, ''),
+            'visible'             => new \external_value(PARAM_INT,  'Visibility',                       VALUE_DEFAULT, 1),
+            'completion'          => new \external_value(PARAM_INT,  'Completion tracking',              VALUE_DEFAULT, 0),
+            'completionview'      => new \external_value(PARAM_INT,  'Must view',                        VALUE_DEFAULT, 0),
+            'completionusegrade'  => new \external_value(PARAM_INT,  'Must receive grade',               VALUE_DEFAULT, 0),
+            'completionpassgrade' => new \external_value(PARAM_INT,  'Must pass grade',                  VALUE_DEFAULT, 0),
+            'completionexpected'  => new \external_value(PARAM_INT,  'Expected completion timestamp',    VALUE_DEFAULT, 0),
+            'availability'        => new \external_value(PARAM_RAW,  'Availability JSON (empty=no restr)', VALUE_DEFAULT, ''),
             'options'             => new \external_multiple_structure(
                 new \external_single_structure([
                     'name'  => new \external_value(PARAM_ALPHANUMEXT, 'Option name'),
@@ -448,16 +448,16 @@ class external extends \external_api {
         $course = get_course($cm->course);
         [$cm_info, $context, $module, $data, $cw] = get_moduleinfo_data($cm, $course);
 
-        // Apply updates
-        if ($params['name'] !== null)                $data->name               = $params['name'];
-        if ($params['intro'] !== null)               $data->intro              = $params['intro'];
-        if ($params['visible'] !== null)             $data->visible            = $params['visible'];
-        if ($params['completion'] !== null)          $data->completion         = $params['completion'];
-        if ($params['completionview'] !== null)      $data->completionview     = $params['completionview'];
-        if ($params['completionusegrade'] !== null)  $data->completionusegrade = $params['completionusegrade'];
-        if ($params['completionpassgrade'] !== null) $data->completionpassgrade = $params['completionpassgrade'];
-        if ($params['completionexpected'] !== null)  $data->completionexpected = $params['completionexpected'];
-        if ($params['availability'] !== null)        $data->availability       = $params['availability'];
+        // Apply updates (all params always present thanks to VALUE_DEFAULT)
+        if ($params['name'] !== '')  $data->name = $params['name'];
+        $data->intro              = $params['intro'];
+        $data->visible            = (int) $params['visible'];
+        $data->completion         = (int) $params['completion'];
+        $data->completionview     = (int) $params['completionview'];
+        $data->completionusegrade = (int) $params['completionusegrade'];
+        $data->completionpassgrade = (int) $params['completionpassgrade'];
+        $data->completionexpected  = (int) $params['completionexpected'];
+        $data->availability        = $params['availability'] !== '' ? $params['availability'] : null;
 
         $opts = [];
         foreach ($params['options'] as $opt) {

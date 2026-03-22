@@ -274,9 +274,19 @@ export async function updateModule(
   moduleData: Partial<KagguModuleInput>,
 ): Promise<void> {
   const { options, ...rest } = moduleData;
+  // All params must always be sent explicitly — VALUE_DEFAULT in PHP requires every param
+  // to be present so that positional argument dispatch works correctly.
   await moodleCall(config, 'local_kaggu_update_module', {
     cmid,
-    ...rest,
+    name: rest.name ?? '',
+    intro: rest.intro ?? '',
+    visible: rest.visible ?? 1,
+    completion: rest.completion ?? 0,
+    completionview: rest.completionview ?? 0,
+    completionusegrade: rest.completionusegrade ?? 0,
+    completionpassgrade: rest.completionpassgrade ?? 0,
+    completionexpected: rest.completionexpected ?? 0,
+    availability: rest.availability ?? '',
     ...(options ? { options: toOptionsArray(options) } : {}),
   });
 }
