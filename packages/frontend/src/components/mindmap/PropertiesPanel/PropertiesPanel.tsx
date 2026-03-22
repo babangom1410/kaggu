@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import { useMindmapStore } from '@/stores/mindmap-store';
+import { AiAssistant } from '@/components/mindmap/AiAssistant';
 
 const TYPE_META: Record<string, { label: string; icon: string; color: string; bg: string }> = {
   course: { label: 'Cours', icon: '🎓', color: 'text-blue-400', bg: 'bg-blue-500/10' },
@@ -81,6 +83,7 @@ interface PropertiesPanelProps {
 
 export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
   const { nodes, updateNode, deleteNode, setSelectedNode } = useMindmapStore();
+  const [aiOpen, setAiOpen] = useState(false);
   const node = nodes.find((n) => n.id === nodeId);
 
   if (!node) return null;
@@ -104,6 +107,14 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
     setSelectedNode(null);
   };
 
+  if (aiOpen) {
+    return (
+      <div className="flex flex-col h-full text-slate-200">
+        <AiAssistant node={node} onClose={() => setAiOpen(false)} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col h-full text-slate-200">
       {/* Header */}
@@ -121,21 +132,32 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
             </div>
           </div>
 
-          <button
-            onClick={() => setSelectedNode(null)}
-            className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500
-                       hover:bg-slate-700 hover:text-slate-300 transition-colors"
-            title="Fermer"
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
-              <path
-                d="M1 1l10 10M11 1L1 11"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-              />
-            </svg>
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setAiOpen(true)}
+              className="flex items-center gap-1 px-2 py-1 rounded-lg text-[11px] font-semibold
+                         bg-indigo-500/15 text-indigo-400 border border-indigo-500/20
+                         hover:bg-indigo-500/25 hover:text-indigo-300 transition-colors"
+              title="Assistant IA"
+            >
+              ✨ IA
+            </button>
+            <button
+              onClick={() => setSelectedNode(null)}
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500
+                         hover:bg-slate-700 hover:text-slate-300 transition-colors"
+              title="Fermer"
+            >
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                <path
+                  d="M1 1l10 10M11 1L1 11"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
 

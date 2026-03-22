@@ -3,6 +3,7 @@ import { useMindmapStore, generateNodeId } from '@/stores/mindmap-store';
 import { useAuthStore } from '@/stores/auth-store';
 import type { SyncStatus } from '@/stores/mindmap-store';
 import { ExportModal } from '@/components/mindmap/ExportModal';
+import { CourseStructureWizard } from '@/components/mindmap/AiAssistant';
 
 function Logo() {
   return (
@@ -136,6 +137,7 @@ export function Toolbar() {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(projectName);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const isMoodleConnected = !!(moodleConfig?.url && moodleConfig?.token);
 
@@ -213,6 +215,17 @@ export function Toolbar() {
           <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
         Section
+      </button>
+
+      {/* AI Wizard */}
+      <button
+        onClick={() => setWizardOpen(true)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+                   bg-indigo-500/15 text-indigo-400 border border-indigo-500/20
+                   hover:bg-indigo-500/25 hover:text-indigo-300 transition-all duration-150"
+        title="Générer une structure de cours avec l'IA"
+      >
+        ✨ Assistant
       </button>
 
       <div className="flex-1" />
@@ -310,6 +323,9 @@ export function Toolbar() {
 
       {/* Export modal */}
       {exportModalOpen && <ExportModal onClose={() => setExportModalOpen(false)} />}
+
+      {/* AI Course Structure Wizard */}
+      {wizardOpen && <CourseStructureWizard onClose={() => setWizardOpen(false)} />}
     </header>
   );
 }

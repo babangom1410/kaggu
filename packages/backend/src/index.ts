@@ -4,6 +4,7 @@ import cors from 'cors';
 import projectsRouter from './routes/projects';
 import moodleRouter from './routes/moodle';
 import licensesRouter from './routes/licenses';
+import llmRouter from './routes/llm';
 import adminOrgsRouter from './routes/admin/organizations';
 import adminLicensesRouter from './routes/admin/licenses';
 import adminPlansRouter from './routes/admin/plans';
@@ -28,6 +29,9 @@ app.use('/api/v1/moodle', moodleRouter);
 
 // Public license endpoints (called by Moodle plugin)
 app.use('/api/v1/licenses', licensesRouter);
+
+// LLM endpoints (auth required)
+app.use('/api/v1/llm', llmRouter);
 
 // Admin routes (JWT + is_platform_admin)
 app.use('/api/v1/admin/organizations', adminAuthMiddleware, adminOrgsRouter);
