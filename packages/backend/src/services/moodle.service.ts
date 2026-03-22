@@ -89,6 +89,7 @@ export async function moodleCall<T>(
 export interface MoodleSiteInfo {
   sitename: string;
   username: string;
+  userid: number;
   moodleversion: string;
   release: string;
   functions: Array<{ name: string; version: string }>;
@@ -279,6 +280,32 @@ export async function deleteModule(
   cmid: number,
 ): Promise<void> {
   await moodleCall(config, 'local_kaggu_delete_module', { cmid });
+}
+
+// ─── File upload ──────────────────────────────────────────────────────────────
+
+/**
+ * Upload a file to the current user's draft area.
+ * Returns the draft itemid to be passed to local_kaggu_create_module.
+ */
+export async function uploadFileToDraft(
+  config: MoodleConnectionConfig,
+  filename: string,
+  filecontentBase64: string,
+  userid: number,
+): Promise<number> {
+  const result = await moodleCall<{ itemid: number }>(config, 'core_files_upload', {
+    contextid: 0,
+    component: 'user',
+    filearea: 'draft',
+    itemid: 0,
+    filepath: '/',
+    filename,
+    filecontent: filecontentBase64,
+    contextlevel: 'user',
+    instanceid: userid,
+  });
+  return result.itemid;
 }
 
 // ─── Utilities ────────────────────────────────────────────────────────────────

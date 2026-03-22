@@ -131,7 +131,7 @@ class external extends \external_api {
             'options'    => $options,
         ]);
 
-        $allowedTypes = ['assign', 'quiz', 'forum', 'url', 'page'];
+        $allowedTypes = ['assign', 'quiz', 'forum', 'url', 'page', 'resource'];
         if (!in_array($params['moduletype'], $allowedTypes)) {
             throw new \moodle_exception('error_module_type', 'local_kaggu', '', $params['moduletype']);
         }
@@ -327,6 +327,19 @@ class external extends \external_api {
                 $info->parameters     = '';
                 // displayoptions built by url_add_instance from the fields above
                 $info->displayoptions = serialize([]);
+                break;
+
+            case 'resource':
+                // Moodle 'resource' module = file resource
+                // $opts['itemid'] is the draft area itemid from core_files_upload
+                $info->tobemigrated    = 0;
+                $info->legacyfiles     = 0;
+                $info->legacyfileslast = null;
+                $info->filterfiles     = 0;
+                $info->revision        = 0;
+                $info->display         = (int)($opts['display'] ?? 0);
+                $info->displayoptions  = serialize([]);
+                $info->files           = (int)($opts['itemid'] ?? 0);
                 break;
 
             case 'page':

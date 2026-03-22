@@ -32,6 +32,10 @@ export interface FileResourceData {
   subtype: 'file';
   name: string;
   description?: string;
+  filename?: string;      // original file name
+  filedata?: string;      // base64-encoded content
+  filesize?: number;      // bytes
+  filetype?: string;      // MIME type
   visible: boolean;
 }
 

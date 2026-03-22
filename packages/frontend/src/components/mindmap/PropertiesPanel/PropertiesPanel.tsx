@@ -228,6 +228,49 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                 placeholder="Nom de la ressource"
               />
             </Field>
+            {data.subtype === 'file' && (
+              <Field label="Fichier">
+                <div className="space-y-2">
+                  <label className="flex items-center justify-center gap-2 w-full py-2 rounded-lg
+                                    border border-dashed border-slate-600 hover:border-indigo-500
+                                    text-xs text-slate-400 hover:text-slate-200 cursor-pointer
+                                    bg-slate-800/50 transition-colors">
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none">
+                      <path d="M6.5 1v8M3 5l3.5-4 3.5 4M1 10v1a1 1 0 001 1h9a1 1 0 001-1v-1"
+                        stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    {data.filename ? 'Changer le fichier' : 'Choisir un fichier'}
+                    <input type="file" className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 20 * 1024 * 1024) {
+                          alert('Fichier trop volumineux (max 20 Mo)');
+                          return;
+                        }
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const base64 = (reader.result as string).split(',')[1];
+                          update('filename', file.name);
+                          update('filedata', base64);
+                          update('filesize', file.size);
+                          update('filetype', file.type);
+                        };
+                        reader.readAsDataURL(file);
+                      }}
+                    />
+                  </label>
+                  {data.filename as string && (
+                    <div className="flex items-center justify-between px-2 py-1.5 bg-slate-800 rounded-lg">
+                      <span className="text-xs text-slate-300 truncate max-w-[160px]">{String(data.filename)}</span>
+                      <span className="text-xs text-slate-500 ml-2 shrink-0">
+                        {data.filesize ? `${Math.round(Number(data.filesize) / 1024)} Ko` : ''}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </Field>
+            )}
             {data.subtype === 'url' && (
               <Field label="URL">
                 <TextInput
