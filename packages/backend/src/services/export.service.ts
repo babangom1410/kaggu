@@ -388,7 +388,8 @@ export async function exportProject(
 
       const moduleChecksum = computeChecksum(moduleNode.data);
       const existingModule = mappings.get(moduleNode.id);
-      const completionFields = buildCompletionFields(moduleNode.data);
+      const completionValue = Number(moduleNode.data.completion ?? 0);
+      const completionFields = completionValue > 0 ? buildCompletionFields(moduleNode.data) : {};
       const restrictions = (moduleNode.data.restrictions ?? []) as Restriction[];
       const availability = buildAvailabilityJson(restrictions, mappings);
 
