@@ -45,7 +45,7 @@ class external extends \external_api {
         ]);
     }
 
-    public static function ensure_section(int $courseid, int $sectionnum, string $name, string $summary = ''): array {
+    public static function ensure_section($courseid, $sectionnum, $name, $summary = ''): array {
         global $DB;
 
         $params = self::validate_parameters(self::ensure_section_parameters(), [
@@ -117,19 +117,19 @@ class external extends \external_api {
     }
 
     public static function create_module(
-        int $courseid,
-        int $sectionnum,
-        string $moduletype,
-        string $name,
-        string $intro = '',
-        int $visible = 1,
-        int $completion = 0,
-        int $completionview = 0,
-        int $completionusegrade = 0,
-        int $completionpassgrade = 0,
-        int $completionexpected = 0,
-        ?string $availability = null,
-        array $options = []
+        $courseid,
+        $sectionnum,
+        $moduletype,
+        $name,
+        $intro = '',
+        $visible = 1,
+        $completion = 0,
+        $completionview = 0,
+        $completionusegrade = 0,
+        $completionpassgrade = 0,
+        $completionexpected = 0,
+        $availability = null,
+        $options = []
     ): array {
         global $CFG, $DB;
 
@@ -413,17 +413,17 @@ class external extends \external_api {
     }
 
     public static function update_module(
-        int $cmid,
-        ?string $name = null,
-        ?string $intro = null,
-        ?int $visible = null,
-        ?int $completion = null,
-        ?int $completionview = null,
-        ?int $completionusegrade = null,
-        ?int $completionpassgrade = null,
-        ?int $completionexpected = null,
-        ?string $availability = null,
-        array $options = []
+        $cmid,
+        $name = null,
+        $intro = null,
+        $visible = null,
+        $completion = null,
+        $completionview = null,
+        $completionusegrade = null,
+        $completionpassgrade = null,
+        $completionexpected = null,
+        $availability = null,
+        $options = []
     ): array {
         global $DB, $CFG;
 
@@ -486,7 +486,7 @@ class external extends \external_api {
         ]);
     }
 
-    public static function delete_module(int $cmid): array {
+    public static function delete_module($cmid): array {
         $params = self::validate_parameters(self::delete_module_parameters(), ['cmid' => $cmid]);
 
         $cm = get_coursemodule_from_id('', $params['cmid'], 0, false, MUST_EXIST);
@@ -513,7 +513,7 @@ class external extends \external_api {
         ]);
     }
 
-    public static function upload_file(int $courseid, string $filename, string $filecontent): array {
+    public static function upload_file($courseid, $filename, $filecontent): array {
         global $USER;
 
         $params = self::validate_parameters(self::upload_file_parameters(), [
