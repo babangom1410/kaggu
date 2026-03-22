@@ -43,6 +43,16 @@ $functions = [
         'ajax'          => false,
         'loginrequired' => true,
     ],
+
+    'local_kaggu_upload_file' => [
+        'classname'     => 'local_kaggu\external',
+        'methodname'    => 'upload_file',
+        'description'   => 'Upload a file to the user draft area and return the draft itemid.',
+        'type'          => 'write',
+        'capabilities'  => 'moodle/course:manageactivities',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
 ];
 
 $services = [

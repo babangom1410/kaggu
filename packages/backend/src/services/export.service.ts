@@ -9,7 +9,6 @@ import {
   updateModule,
   computeChecksum,
   dateToTimestamp,
-  getSiteInfo,
   uploadFileToDraft,
 } from './moodle.service';
 
@@ -223,32 +222,7 @@ export async function exportProject(
     mappings.set(nodeId, { project_id: projectId, node_id: nodeId, moodle_type: moodleType, moodle_id: moodleId, checksum });
   };
 
-  // 4. Pre-upload file resources to Moodle draft areas
-  const fileItemIds = new Map<string, number>();
-  const fileNodes = nodes.filter(
-    (n) => n.type === 'resource' && (n.data as Record<string, unknown>).subtype === 'file',
-  );
-  if (fileNodes.length > 0) {
-    const siteInfo = await getSiteInfo(config);
-    for (const fileNode of fileNodes) {
-      const data = fileNode.data as Record<string, unknown>;
-      if (!data.filedata || !data.filename) continue;
-      try {
-        const itemId = await uploadFileToDraft(
-          config,
-          String(data.filename),
-          String(data.filedata),
-          siteInfo.userid,
-        );
-        fileItemIds.set(fileNode.id, itemId);
-      } catch (err) {
-        const msg = err instanceof MoodleError ? err.message : String(err);
-        report.errors.push({ nodeId: fileNode.id, nodeName: String(data.name || fileNode.id), error: `File upload failed: ${msg}` });
-      }
-    }
-  }
-
-  // 5. Get sections (direct children of course node)
+  // 4. Get sections (direct children of course node)
   const sectionNodes = sortByPosition(getChildren(courseNode.id, edges, nodes));
 
   // 5. Create or update the Moodle course
@@ -287,7 +261,29 @@ export async function exportProject(
     })
     .eq('id', projectId);
 
-  // 6. Create or update sections
+  // 6. Pre-upload file resources to Moodle draft areas (needs moodleCourseId for capability check)
+  const fileItemIds = new Map<string, number>();
+  const fileNodes = nodes.filter(
+    (n) => n.type === 'resource' && (n.data as Record<string, unknown>).subtype === 'file',
+  );
+  for (const fileNode of fileNodes) {
+    const data = fileNode.data as Record<string, unknown>;
+    if (!data.filedata || !data.filename) continue;
+    try {
+      const itemId = await uploadFileToDraft(
+        config,
+        moodleCourseId,
+        String(data.filename),
+        String(data.filedata),
+      );
+      fileItemIds.set(fileNode.id, itemId);
+    } catch (err) {
+      const msg = err instanceof MoodleError ? err.message : String(err);
+      report.errors.push({ nodeId: fileNode.id, nodeName: String(data.name || fileNode.id), error: `File upload failed: ${msg}` });
+    }
+  }
+
+  // 7. Create or update sections
   for (let i = 0; i < sectionNodes.length; i++) {
     const sectionNode = sectionNodes[i];
     const sectionNum = i + 1; // Section 0 is "General", our sections start at 1

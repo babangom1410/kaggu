@@ -450,4 +450,55 @@ class external extends \external_api {
             'success' => new \external_value(PARAM_BOOL, 'Deletion successful'),
         ]);
     }
+
+    // ─── upload_file ─────────────────────────────────────────────────────────
+
+    public static function upload_file_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'courseid'    => new \external_value(PARAM_INT,  'Course id (for capability check)'),
+            'filename'    => new \external_value(PARAM_FILE, 'File name'),
+            'filecontent' => new \external_value(PARAM_RAW,  'Base64-encoded file content'),
+        ]);
+    }
+
+    public static function upload_file(int $courseid, string $filename, string $filecontent): array {
+        global $USER;
+
+        $params = self::validate_parameters(self::upload_file_parameters(), [
+            'courseid'    => $courseid,
+            'filename'    => $filename,
+            'filecontent' => $filecontent,
+        ]);
+
+        self::check_license_and_capability($params['courseid']);
+
+        // Create a new user draft area
+        $draftitemid = file_get_unused_draft_itemid();
+        $usercontext = \context_user::instance($USER->id);
+
+        $fs = get_file_storage();
+        $fileinfo = [
+            'contextid' => $usercontext->id,
+            'component' => 'user',
+            'filearea'  => 'draft',
+            'itemid'    => $draftitemid,
+            'filepath'  => '/',
+            'filename'  => $params['filename'],
+        ];
+
+        $decoded = base64_decode($params['filecontent'], true);
+        if ($decoded === false) {
+            throw new \moodle_exception('invalidbase64', 'local_kaggu', '', $params['filename']);
+        }
+
+        $fs->create_file_from_string($fileinfo, $decoded);
+
+        return ['itemid' => $draftitemid];
+    }
+
+    public static function upload_file_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'itemid' => new \external_value(PARAM_INT, 'Draft area item id to use with create_module'),
+        ]);
+    }
 }
