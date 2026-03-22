@@ -352,7 +352,7 @@ class external extends \external_api {
 
         // Get existing module info
         $course = get_course($cm->course);
-        [$cm_info, $context, $cw, $cm_record, $data] = get_moduleinfo_data($cm, $course);
+        [$cm_info, $context, $module, $data, $cw] = get_moduleinfo_data($cm, $course);
 
         // Apply updates
         if ($params['name'] !== null)    $data->name    = $params['name'];
@@ -365,7 +365,7 @@ class external extends \external_api {
         }
         self::apply_module_options($data, $cm->modname, $opts);
 
-        update_moduleinfo($cm_record, $data, $course);
+        update_moduleinfo($cm, $data, $course);
 
         return ['success' => true];
     }
