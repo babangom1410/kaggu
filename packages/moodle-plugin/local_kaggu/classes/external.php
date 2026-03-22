@@ -220,93 +220,125 @@ class external extends \external_api {
     private static function apply_module_options(\stdClass $info, string $type, array $opts): void {
         switch ($type) {
             case 'assign':
-                $info->submissiondrafts   = 0;
-                $info->sendnotifications  = 0;
-                $info->sendlatenotifications = 0;
-                $info->allowsubmissionsfromdate = 0;
-                $info->duedate            = (int)($opts['duedate'] ?? 0);
-                $info->cutoffdate         = (int)($opts['cutoffdate'] ?? 0);
-                $info->grade              = (int)($opts['maxgrade'] ?? 100);
-                $info->gradingduedate     = 0;
-                $info->requiresubmissionstatement = 0;
-                $info->sendstudentnotifications   = 1;
-                // Moodle 5.x required fields
+                // Core fields
+                $info->nosubmissions                    = 0;
+                $info->submissiondrafts                 = 0;
+                $info->sendnotifications                = 0;
+                $info->sendlatenotifications            = 0;
+                $info->sendstudentnotifications         = 1;
+                $info->allowsubmissionsfromdate         = 0;
+                $info->alwaysshowdescription            = 1;
+                $info->duedate                          = (int)($opts['duedate'] ?? 0);
+                $info->cutoffdate                       = (int)($opts['cutoffdate'] ?? 0);
+                $info->gradingduedate                   = 0;
+                $info->grade                            = (int)($opts['maxgrade'] ?? 100);
+                $info->requiresubmissionstatement       = 0;
+                $info->completionsubmit                 = 0;
+                // Team / workflow fields (Moodle 5.x non-nullable)
                 $info->teamsubmission                   = 0;
                 $info->requireallteammemberssubmit      = 0;
+                $info->teamsubmissiongroupingid         = 0;
+                $info->preventsubmissionnotingroup      = 0;
                 $info->blindmarking                     = 0;
-                $info->markingworkflow                  = 0;
-                $info->markingallocation                = 0;
+                $info->hidegrader                       = 0;
+                $info->revealidentities                 = 0;
                 $info->attemptreopenmethod              = 'none';
                 $info->maxattempts                      = -1;
-
+                $info->markingworkflow                  = 0;
+                $info->markingallocation                = 0;
+                // Submission plugins
                 $subtype = $opts['submissiontype'] ?? 'online_text';
-                $info->assignsubmission_onlinetext_enabled =
-                    in_array($subtype, ['online_text', 'both']) ? 1 : 0;
-                $info->assignsubmission_file_enabled =
-                    in_array($subtype, ['file', 'both']) ? 1 : 0;
+                $info->assignsubmission_onlinetext_enabled = in_array($subtype, ['online_text', 'both']) ? 1 : 0;
+                $info->assignsubmission_file_enabled       = in_array($subtype, ['file', 'both']) ? 1 : 0;
                 $info->assignsubmission_file_maxfiles      = 1;
                 $info->assignsubmission_file_maxsizebytes  = 0;
                 $info->assignfeedback_comments_enabled     = 1;
                 break;
 
             case 'quiz':
-                $info->timeopen           = (int)($opts['timeopen'] ?? 0);
-                $info->timeclose          = (int)($opts['timeclose'] ?? 0);
-                $info->timelimit          = (int)($opts['timelimit'] ?? 0);
-                $info->overduehandling    = 'autosubmit';
-                $info->graceperiod        = 0;
-                $info->attempts           = (int)($opts['attempts'] ?? 0);
-                $info->grademethod        = (int)($opts['grademethod'] ?? 1);
-                $info->shuffleanswers     = 1;
-                $info->questionsperpage   = 1;
-                $info->navmethod          = 'free';
-                $info->preferredbehaviour = 'deferredfeedback';
-                $info->decimalpoints      = 2;
+                $info->timeopen              = (int)($opts['timeopen'] ?? 0);
+                $info->timeclose             = (int)($opts['timeclose'] ?? 0);
+                $info->timelimit             = (int)($opts['timelimit'] ?? 0);
+                $info->overduehandling       = 'autosubmit';
+                $info->graceperiod           = 0;
+                $info->attempts              = (int)($opts['attempts'] ?? 0);
+                $info->attemptonlast         = 0;
+                $info->grademethod           = (int)($opts['grademethod'] ?? 1);
+                $info->decimalpoints         = 2;
                 $info->questiondecimalpoints = -1;
-                // Moodle 5.x required fields
-                $info->quizpassword       = '';  // form field name; quiz_add_instance maps it to 'password' column
-                $info->password           = '';
-                $info->subnet             = '';
-                $info->delay1             = 0;
-                $info->delay2             = 0;
-                $info->browsersecurity    = '-';
+                $info->shuffleanswers        = 1;
+                $info->questionsperpage      = 1;
+                $info->navmethod             = 'free';
+                $info->preferredbehaviour    = 'deferredfeedback';
+                $info->canredoquestions      = 0;
+                $info->sumgrades             = 0;
+                $info->grade                 = 10;
+                $info->showuserpicture       = 0;
+                $info->showblocks            = 0;
+                // Security (Moodle 5.x non-nullable)
+                $info->quizpassword          = '';  // form field → mapped to 'password' column by quiz_add_instance()
+                $info->password              = '';
+                $info->subnet                = '';
+                $info->browsersecurity       = '-';
+                $info->delay1                = 0;
+                $info->delay2                = 0;
                 // Standard review bit flags
-                $info->reviewattempt      = 69904;
-                $info->reviewcorrectness  = 4368;
-                $info->reviewmarks        = 4368;
-                $info->reviewspecificfeedback  = 4368;
-                $info->reviewgeneralfeedback   = 4368;
-                $info->reviewrightanswer       = 4368;
-                $info->reviewoverallfeedback   = 4368;
+                $info->reviewattempt             = 69904;
+                $info->reviewcorrectness         = 4368;
+                $info->reviewmarks               = 4368;
+                $info->reviewspecificfeedback    = 4368;
+                $info->reviewgeneralfeedback     = 4368;
+                $info->reviewrightanswer         = 4368;
+                $info->reviewoverallfeedback     = 4368;
                 break;
 
             case 'forum':
-                $info->type           = $opts['type'] ?? 'general';
-                $info->maxattachments = (int)($opts['maxattachments'] ?? 9);
-                $info->maxbytes       = 0;
-                $info->assessed       = 0;
-                $info->displaywordcount    = 0;
+                $info->type               = $opts['type'] ?? 'general';
+                $info->assessed           = 0;
+                $info->assesstimestart    = 0;
+                $info->assesstimefinish   = 0;
+                $info->scale              = 0;
+                $info->grade_forum        = 0;
+                $info->grade_forum_notify = 0;
+                $info->maxbytes           = 0;
+                $info->maxattachments     = (int)($opts['maxattachments'] ?? 9);
+                $info->forcesubscribe     = 0;  // 0=optional, 1=forced, 2=auto, 3=disabled
+                $info->trackingtype       = 1;  // 1=optional
+                $info->rsstype            = 0;
+                $info->rssarticles        = 0;
+                $info->warnafter          = 0;
+                $info->blockafter         = 0;
+                $info->blockperiod        = 0;
+                $info->lockdiscussionafter = 0;
+                $info->duedate            = 0;
+                $info->cutoffdate         = 0;
+                $info->displaywordcount   = 0;
                 $info->completiondiscussions = 0;
-                $info->completionreplies   = 0;
-                $info->completionposts     = 0;
+                $info->completionreplies  = 0;
+                $info->completionposts    = 0;
                 break;
 
             case 'url':
                 $info->externalurl    = $opts['externalurl'] ?? ($opts['url'] ?? '');
                 $info->display        = (int)($opts['display'] ?? 0);
-                $info->displayoptions = serialize(['popup' => 0, 'preindicator' => 0]);
+                $info->popupwidth     = 620;
+                $info->popupheight    = 450;
+                $info->preindicator   = 0;
                 $info->parameters     = '';
+                // displayoptions built by url_add_instance from the fields above
+                $info->displayoptions = serialize([]);
                 break;
 
             case 'page':
                 $content = $opts['content'] ?? '';
                 $info->content           = $content;
                 $info->contentformat     = FORMAT_HTML;
-                // Moodle 5.x page_update_instance reads $data->page['text'] / ['format']
+                // Moodle 5.x: page_update_instance reads $data->page['text'] / ['format']
                 $info->page              = ['text' => $content, 'format' => FORMAT_HTML, 'itemid' => 0];
                 $info->printintro        = 0;
                 $info->printlastmodified = 1;
                 $info->legacyfiles       = 0;
+                $info->revision          = 0;
                 $info->display           = 5;
                 $info->displayoptions    = serialize(['printintro' => 0, 'printlastmodified' => 1]);
                 break;
