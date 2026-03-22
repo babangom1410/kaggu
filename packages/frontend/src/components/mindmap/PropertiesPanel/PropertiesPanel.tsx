@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMindmapStore } from '@/stores/mindmap-store';
 import { AiAssistant } from '@/components/mindmap/AiAssistant';
+import type { Restriction, MindmapNode } from '@/types/mindmap.types';
 
 const TYPE_META: Record<string, { label: string; icon: string; color: string; bg: string }> = {
   course: { label: 'Cours', icon: '🎓', color: 'text-blue-400', bg: 'bg-blue-500/10' },
@@ -74,6 +75,176 @@ function Toggle({
         />
       </div>
     </button>
+  );
+}
+
+// ─── CompletionPanel ──────────────────────────────────────────────────────────
+
+function SectionHeader({ label, open, onToggle }: { label: string; open: boolean; onToggle: () => void }) {
+  return (
+    <button onClick={onToggle}
+      className="w-full flex items-center justify-between text-[11px] font-semibold text-slate-400
+                 uppercase tracking-wider hover:text-slate-200 transition-colors">
+      {label}
+      <svg width="10" height="10" viewBox="0 0 10 10" fill="none"
+        className={`transition-transform ${open ? 'rotate-180' : ''}`}>
+        <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+}
+
+interface CompletionPanelProps {
+  data: Record<string, unknown>;
+  update: (key: string, value: unknown) => void;
+  nodes: MindmapNode[];
+  nodeId: string;
+}
+
+function CompletionPanel({ data, update, nodes, nodeId }: CompletionPanelProps) {
+  const [completionOpen, setCompletionOpen] = useState(false);
+  const [restrictionsOpen, setRestrictionsOpen] = useState(false);
+
+  const completion = Number(data.completion ?? 0) as 0 | 1 | 2;
+  const restrictions = (data.restrictions ?? []) as Restriction[];
+
+  const otherModules = nodes.filter((n: MindmapNode) =>
+    n.id !== nodeId && (n.type === 'activity' || n.type === 'resource'),
+  );
+
+  const addRestriction = (type: Restriction['type']) => {
+    const base = [...restrictions];
+    if (type === 'date') base.push({ type: 'date', direction: '>=', date: '' });
+    else if (type === 'grade') base.push({ type: 'grade', nodeId: otherModules[0]?.id ?? '', min: 50 });
+    else base.push({ type: 'completion', nodeId: otherModules[0]?.id ?? '', expected: 1 });
+    update('restrictions', base);
+  };
+
+  const updateRestriction = (i: number, patch: Partial<Restriction>) => {
+    const base = [...restrictions];
+    base[i] = { ...base[i], ...patch } as Restriction;
+    update('restrictions', base);
+  };
+
+  const removeRestriction = (i: number) => {
+    update('restrictions', restrictions.filter((_, idx) => idx !== i));
+  };
+
+  const nodeLabel = (id: string) => {
+    const n = nodes.find((x: MindmapNode) => x.id === id);
+    const d = n?.data as Record<string, unknown> | undefined;
+    return String(d?.name ?? d?.fullname ?? id);
+  };
+
+  return (
+    <div className="space-y-3 pt-2 border-t border-slate-700/50">
+      {/* Completion */}
+      <div className="space-y-2">
+        <SectionHeader label="Achèvement" open={completionOpen} onToggle={() => setCompletionOpen((v) => !v)} />
+        {completionOpen && (
+          <div className="space-y-2 pl-1">
+            <select value={completion} onChange={(e) => update('completion', Number(e.target.value))}
+              className="w-full bg-slate-800 text-slate-200 text-xs rounded-lg px-2 py-1.5
+                         border border-slate-700 focus:border-indigo-500 focus:outline-none">
+              <option value={0}>Aucun suivi</option>
+              <option value={1}>Manuel (case à cocher)</option>
+              <option value={2}>Automatique</option>
+            </select>
+            {completion === 2 && (
+              <div className="space-y-1.5">
+                <Toggle checked={Boolean(data.completionview)} onChange={(v) => update('completionview', v)}
+                  label="Vue obligatoire" />
+                <Toggle checked={Boolean(data.completionusegrade)} onChange={(v) => update('completionusegrade', v)}
+                  label="Note requise" />
+                {Boolean(data.completionusegrade) && (
+                  <Toggle checked={Boolean(data.completionpassgrade)} onChange={(v) => update('completionpassgrade', v)}
+                    label="Note de passage requise" />
+                )}
+                <div>
+                  <label className="block text-[11px] text-slate-500 mb-1">Date attendue</label>
+                  <input type="date" value={String(data.completionexpected ?? '')}
+                    onChange={(e) => update('completionexpected', e.target.value)}
+                    className="w-full bg-slate-800 text-slate-200 text-xs rounded-lg px-2 py-1.5
+                               border border-slate-700 focus:border-indigo-500 focus:outline-none" />
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Restrictions */}
+      <div className="space-y-2">
+        <SectionHeader label={`Restrictions${restrictions.length ? ` (${restrictions.length})` : ''}`}
+          open={restrictionsOpen} onToggle={() => setRestrictionsOpen((v) => !v)} />
+        {restrictionsOpen && (
+          <div className="space-y-2 pl-1">
+            {restrictions.map((r, i) => (
+              <div key={i} className="bg-slate-800 rounded-lg p-2 space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-slate-400">
+                    {r.type === 'date' ? '📅 Date' : r.type === 'grade' ? '⭐ Note' : '✅ Achèvement'}
+                  </span>
+                  <button onClick={() => removeRestriction(i)}
+                    className="text-slate-600 hover:text-red-400 text-xs transition-colors">✕</button>
+                </div>
+                {r.type === 'date' && (
+                  <div className="flex gap-1.5">
+                    <select value={r.direction}
+                      onChange={(e) => updateRestriction(i, { direction: e.target.value as '>=' | '<' })}
+                      className="bg-slate-700 text-slate-200 text-xs rounded px-1.5 py-1 border border-slate-600">
+                      <option value=">=">À partir du</option>
+                      <option value="<">Jusqu'au</option>
+                    </select>
+                    <input type="date" value={r.date}
+                      onChange={(e) => updateRestriction(i, { date: e.target.value })}
+                      className="flex-1 bg-slate-700 text-slate-200 text-xs rounded px-1.5 py-1 border border-slate-600" />
+                  </div>
+                )}
+                {(r.type === 'grade' || r.type === 'completion') && (
+                  <select value={r.nodeId}
+                    onChange={(e) => updateRestriction(i, { nodeId: e.target.value })}
+                    className="w-full bg-slate-700 text-slate-200 text-xs rounded px-1.5 py-1 border border-slate-600">
+                    {otherModules.map((n: MindmapNode) => (
+                      <option key={n.id} value={n.id}>{nodeLabel(n.id)}</option>
+                    ))}
+                  </select>
+                )}
+                {r.type === 'grade' && (
+                  <div className="flex gap-1.5">
+                    <input type="number" placeholder="Min %" value={r.min ?? ''}
+                      onChange={(e) => updateRestriction(i, { min: Number(e.target.value) })}
+                      className="w-1/2 bg-slate-700 text-slate-200 text-xs rounded px-1.5 py-1 border border-slate-600" />
+                    <input type="number" placeholder="Max %" value={r.max ?? ''}
+                      onChange={(e) => updateRestriction(i, { max: e.target.value ? Number(e.target.value) : undefined })}
+                      className="w-1/2 bg-slate-700 text-slate-200 text-xs rounded px-1.5 py-1 border border-slate-600" />
+                  </div>
+                )}
+                {r.type === 'completion' && (
+                  <select value={r.expected}
+                    onChange={(e) => updateRestriction(i, { expected: Number(e.target.value) as 1 | 0 })}
+                    className="w-full bg-slate-700 text-slate-200 text-xs rounded px-1.5 py-1 border border-slate-600">
+                    <option value={1}>Doit être complété</option>
+                    <option value={0}>Ne doit pas être complété</option>
+                  </select>
+                )}
+              </div>
+            ))}
+            <div className="flex gap-1.5">
+              {(['date', 'grade', 'completion'] as Restriction['type'][]).map((t) => (
+                <button key={t} onClick={() => addRestriction(t)}
+                  disabled={t !== 'date' && otherModules.length === 0}
+                  className="flex-1 py-1 text-[11px] rounded-lg bg-slate-800 hover:bg-slate-700
+                             text-slate-400 hover:text-slate-200 border border-slate-700 transition-colors
+                             disabled:opacity-30 disabled:cursor-not-allowed">
+                  + {t === 'date' ? 'Date' : t === 'grade' ? 'Note' : 'Achèv.'}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -374,6 +545,10 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
               label="Visible"
             />
           </>
+        )}
+        {/* Completion & Restrictions — resource and activity nodes only */}
+        {(node.type === 'resource' || node.type === 'activity') && (
+          <CompletionPanel data={data} update={update} nodes={nodes} nodeId={nodeId} />
         )}
       </div>
 

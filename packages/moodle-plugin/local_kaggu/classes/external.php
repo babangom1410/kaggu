@@ -92,13 +92,19 @@ class external extends \external_api {
 
     public static function create_module_parameters(): \external_function_parameters {
         return new \external_function_parameters([
-            'courseid'   => new \external_value(PARAM_INT,  'Course ID'),
-            'sectionnum' => new \external_value(PARAM_INT,  'Section number (1-based)'),
-            'moduletype' => new \external_value(PARAM_ALPHANUMEXT, 'Module type (assign, quiz, forum, url, page)'),
-            'name'       => new \external_value(PARAM_TEXT, 'Module name'),
-            'intro'      => new \external_value(PARAM_RAW,  'Module description (HTML)', VALUE_DEFAULT, ''),
-            'visible'    => new \external_value(PARAM_INT,  'Visibility (1=visible, 0=hidden)', VALUE_DEFAULT, 1),
-            'options'    => new \external_multiple_structure(
+            'courseid'            => new \external_value(PARAM_INT,  'Course ID'),
+            'sectionnum'          => new \external_value(PARAM_INT,  'Section number (1-based)'),
+            'moduletype'          => new \external_value(PARAM_ALPHANUMEXT, 'Module type (assign, quiz, forum, url, page)'),
+            'name'                => new \external_value(PARAM_TEXT, 'Module name'),
+            'intro'               => new \external_value(PARAM_RAW,  'Module description (HTML)', VALUE_DEFAULT, ''),
+            'visible'             => new \external_value(PARAM_INT,  'Visibility (1=visible, 0=hidden)', VALUE_DEFAULT, 1),
+            'completion'          => new \external_value(PARAM_INT,  'Completion tracking (0=none,1=manual,2=auto)', VALUE_DEFAULT, 0),
+            'completionview'      => new \external_value(PARAM_INT,  'Must view to complete', VALUE_DEFAULT, 0),
+            'completionusegrade'  => new \external_value(PARAM_INT,  'Must receive grade', VALUE_DEFAULT, 0),
+            'completionpassgrade' => new \external_value(PARAM_INT,  'Must pass grade', VALUE_DEFAULT, 0),
+            'completionexpected'  => new \external_value(PARAM_INT,  'Expected completion timestamp', VALUE_DEFAULT, 0),
+            'availability'        => new \external_value(PARAM_RAW,  'Availability JSON', VALUE_DEFAULT, null),
+            'options'             => new \external_multiple_structure(
                 new \external_single_structure([
                     'name'  => new \external_value(PARAM_ALPHANUMEXT, 'Option name'),
                     'value' => new \external_value(PARAM_RAW, 'Option value'),
@@ -117,18 +123,30 @@ class external extends \external_api {
         string $name,
         string $intro = '',
         int $visible = 1,
+        int $completion = 0,
+        int $completionview = 0,
+        int $completionusegrade = 0,
+        int $completionpassgrade = 0,
+        int $completionexpected = 0,
+        ?string $availability = null,
         array $options = []
     ): array {
         global $CFG, $DB;
 
         $params = self::validate_parameters(self::create_module_parameters(), [
-            'courseid'   => $courseid,
-            'sectionnum' => $sectionnum,
-            'moduletype' => $moduletype,
-            'name'       => $name,
-            'intro'      => $intro,
-            'visible'    => $visible,
-            'options'    => $options,
+            'courseid'            => $courseid,
+            'sectionnum'          => $sectionnum,
+            'moduletype'          => $moduletype,
+            'name'                => $name,
+            'intro'               => $intro,
+            'visible'             => $visible,
+            'completion'          => $completion,
+            'completionview'      => $completionview,
+            'completionusegrade'  => $completionusegrade,
+            'completionpassgrade' => $completionpassgrade,
+            'completionexpected'  => $completionexpected,
+            'availability'        => $availability,
+            'options'             => $options,
         ]);
 
         $allowedTypes = ['assign', 'quiz', 'forum', 'url', 'page', 'resource'];
@@ -181,10 +199,12 @@ class external extends \external_api {
         $moduleinfo->cmidnumber          = '';
         $moduleinfo->groupmode           = 0;
         $moduleinfo->groupingid          = 0;
-        $moduleinfo->completion          = 0;
-        $moduleinfo->completionview      = 0;
-        $moduleinfo->completionexpected  = 0;
-        $moduleinfo->availability        = null;
+        $moduleinfo->completion          = (int) $params['completion'];
+        $moduleinfo->completionview      = (int) $params['completionview'];
+        $moduleinfo->completionusegrade  = (int) $params['completionusegrade'];
+        $moduleinfo->completionpassgrade = (int) $params['completionpassgrade'];
+        $moduleinfo->completionexpected  = (int) $params['completionexpected'];
+        $moduleinfo->availability        = $params['availability'];
         $moduleinfo->showdescription     = 0;
         $moduleinfo->lang                = '';
         // Moodle 5.x new fields
@@ -370,11 +390,17 @@ class external extends \external_api {
 
     public static function update_module_parameters(): \external_function_parameters {
         return new \external_function_parameters([
-            'cmid'    => new \external_value(PARAM_INT,  'Course module ID'),
-            'name'    => new \external_value(PARAM_TEXT, 'New name', VALUE_OPTIONAL),
-            'intro'   => new \external_value(PARAM_RAW,  'New description', VALUE_OPTIONAL),
-            'visible' => new \external_value(PARAM_INT,  'Visibility', VALUE_OPTIONAL),
-            'options' => new \external_multiple_structure(
+            'cmid'                => new \external_value(PARAM_INT,  'Course module ID'),
+            'name'                => new \external_value(PARAM_TEXT, 'New name', VALUE_OPTIONAL),
+            'intro'               => new \external_value(PARAM_RAW,  'New description', VALUE_OPTIONAL),
+            'visible'             => new \external_value(PARAM_INT,  'Visibility', VALUE_OPTIONAL),
+            'completion'          => new \external_value(PARAM_INT,  'Completion tracking', VALUE_OPTIONAL),
+            'completionview'      => new \external_value(PARAM_INT,  'Must view', VALUE_OPTIONAL),
+            'completionusegrade'  => new \external_value(PARAM_INT,  'Must receive grade', VALUE_OPTIONAL),
+            'completionpassgrade' => new \external_value(PARAM_INT,  'Must pass grade', VALUE_OPTIONAL),
+            'completionexpected'  => new \external_value(PARAM_INT,  'Expected completion timestamp', VALUE_OPTIONAL),
+            'availability'        => new \external_value(PARAM_RAW,  'Availability JSON', VALUE_OPTIONAL),
+            'options'             => new \external_multiple_structure(
                 new \external_single_structure([
                     'name'  => new \external_value(PARAM_ALPHANUMEXT, 'Option name'),
                     'value' => new \external_value(PARAM_RAW, 'Option value'),
@@ -386,15 +412,33 @@ class external extends \external_api {
         ]);
     }
 
-    public static function update_module(int $cmid, ?string $name = null, ?string $intro = null, ?int $visible = null, array $options = []): array {
+    public static function update_module(
+        int $cmid,
+        ?string $name = null,
+        ?string $intro = null,
+        ?int $visible = null,
+        ?int $completion = null,
+        ?int $completionview = null,
+        ?int $completionusegrade = null,
+        ?int $completionpassgrade = null,
+        ?int $completionexpected = null,
+        ?string $availability = null,
+        array $options = []
+    ): array {
         global $DB, $CFG;
 
         $params = self::validate_parameters(self::update_module_parameters(), [
-            'cmid'    => $cmid,
-            'name'    => $name,
-            'intro'   => $intro,
-            'visible' => $visible,
-            'options' => $options,
+            'cmid'                => $cmid,
+            'name'                => $name,
+            'intro'               => $intro,
+            'visible'             => $visible,
+            'completion'          => $completion,
+            'completionview'      => $completionview,
+            'completionusegrade'  => $completionusegrade,
+            'completionpassgrade' => $completionpassgrade,
+            'completionexpected'  => $completionexpected,
+            'availability'        => $availability,
+            'options'             => $options,
         ]);
 
         $cm = get_coursemodule_from_id('', $params['cmid'], 0, false, MUST_EXIST);
@@ -405,15 +449,23 @@ class external extends \external_api {
         [$cm_info, $context, $module, $data, $cw] = get_moduleinfo_data($cm, $course);
 
         // Apply updates
-        if ($params['name'] !== null)    $data->name    = $params['name'];
-        if ($params['intro'] !== null)   $data->intro   = $params['intro'];
-        if ($params['visible'] !== null) $data->visible = $params['visible'];
+        if ($params['name'] !== null)                $data->name               = $params['name'];
+        if ($params['intro'] !== null)               $data->intro              = $params['intro'];
+        if ($params['visible'] !== null)             $data->visible            = $params['visible'];
+        if ($params['completion'] !== null)          $data->completion         = $params['completion'];
+        if ($params['completionview'] !== null)      $data->completionview     = $params['completionview'];
+        if ($params['completionusegrade'] !== null)  $data->completionusegrade = $params['completionusegrade'];
+        if ($params['completionpassgrade'] !== null) $data->completionpassgrade = $params['completionpassgrade'];
+        if ($params['completionexpected'] !== null)  $data->completionexpected = $params['completionexpected'];
+        if ($params['availability'] !== null)        $data->availability       = $params['availability'];
 
         $opts = [];
         foreach ($params['options'] as $opt) {
             $opts[$opt['name']] = $opt['value'];
         }
-        self::apply_module_options($data, $cm->modname, $opts);
+        if (!empty($opts)) {
+            self::apply_module_options($data, $cm->modname, $opts);
+        }
 
         update_moduleinfo($cm, $data, $course);
 

@@ -28,7 +28,7 @@ export interface SectionNodeData {
 
 export type ResourceSubtype = 'file' | 'url' | 'page';
 
-export interface FileResourceData {
+export interface FileResourceData extends CompletionSettings, RestrictionsSettings {
   subtype: 'file';
   name: string;
   description?: string;
@@ -39,7 +39,7 @@ export interface FileResourceData {
   visible: boolean;
 }
 
-export interface UrlResourceData {
+export interface UrlResourceData extends CompletionSettings, RestrictionsSettings {
   subtype: 'url';
   name: string;
   description?: string;
@@ -48,7 +48,7 @@ export interface UrlResourceData {
   visible: boolean;
 }
 
-export interface PageResourceData {
+export interface PageResourceData extends CompletionSettings, RestrictionsSettings {
   subtype: 'page';
   name: string;
   description?: string;
@@ -62,7 +62,7 @@ export type ResourceNodeData = FileResourceData | UrlResourceData | PageResource
 
 export type ActivitySubtype = 'assign' | 'quiz' | 'forum';
 
-export interface AssignActivityData {
+export interface AssignActivityData extends CompletionSettings, RestrictionsSettings {
   subtype: 'assign';
   name: string;
   description?: string;
@@ -73,7 +73,7 @@ export interface AssignActivityData {
   visible: boolean;
 }
 
-export interface QuizActivityData {
+export interface QuizActivityData extends CompletionSettings, RestrictionsSettings {
   subtype: 'quiz';
   name: string;
   description?: string;
@@ -85,7 +85,7 @@ export interface QuizActivityData {
   visible: boolean;
 }
 
-export interface ForumActivityData {
+export interface ForumActivityData extends CompletionSettings, RestrictionsSettings {
   subtype: 'forum';
   name: string;
   description?: string;
@@ -103,6 +103,25 @@ export type MindmapNodeData =
   | SectionNodeData
   | ResourceNodeData
   | ActivityNodeData;
+
+// --- Completion & restrictions (shared by resource + activity nodes) ---
+
+export interface CompletionSettings {
+  completion?: 0 | 1 | 2;        // 0=none, 1=manual, 2=automatic
+  completionview?: boolean;       // must view
+  completionusegrade?: boolean;   // must receive grade
+  completionpassgrade?: boolean;  // must pass
+  completionexpected?: string;    // ISO date
+}
+
+export type Restriction =
+  | { type: 'date';       direction: '>=' | '<'; date: string }
+  | { type: 'grade';      nodeId: string; min?: number; max?: number }
+  | { type: 'completion'; nodeId: string; expected: 1 | 0 };
+
+export interface RestrictionsSettings {
+  restrictions?: Restriction[];
+}
 
 export type MindmapNodeType = 'course' | 'section' | 'resource' | 'activity';
 

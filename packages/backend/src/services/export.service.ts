@@ -58,6 +58,70 @@ function sortByPosition(nodes: BackendNode[]): BackendNode[] {
   return [...nodes].sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
 }
 
+interface Restriction {
+  type: 'date' | 'grade' | 'completion';
+  direction?: '>=' | '<';
+  date?: string;
+  nodeId?: string;
+  min?: number;
+  max?: number;
+  expected?: 1 | 0;
+}
+
+function buildAvailabilityJson(
+  restrictions: Restriction[],
+  mappings: Map<string, { moodle_id: number; moodle_type: string }>,
+): string | null {
+  if (!restrictions || restrictions.length === 0) return null;
+
+  const conditions: unknown[] = [];
+  const showc: boolean[] = [];
+
+  for (const r of restrictions) {
+    if (r.type === 'date') {
+      if (!r.date) continue;
+      const ts = Math.floor(new Date(r.date).getTime() / 1000);
+      if (isNaN(ts)) continue;
+      conditions.push({ type: 'date', d: r.direction === '>=' ? '>=' : '<', t: ts });
+      showc.push(true);
+    } else if (r.type === 'grade') {
+      const mapping = r.nodeId ? mappings.get(r.nodeId) : null;
+      if (!mapping || mapping.moodle_type !== 'module') continue;
+      const cond: Record<string, unknown> = { type: 'grade', id: mapping.moodle_id };
+      if (r.min !== undefined) cond.min = r.min / 100;
+      if (r.max !== undefined) cond.max = r.max / 100;
+      conditions.push(cond);
+      showc.push(true);
+    } else if (r.type === 'completion') {
+      const mapping = r.nodeId ? mappings.get(r.nodeId) : null;
+      if (!mapping || mapping.moodle_type !== 'module') continue;
+      conditions.push({ type: 'completion', id: mapping.moodle_id, e: r.expected === 1 ? 1 : 0 });
+      showc.push(true);
+    }
+  }
+
+  if (conditions.length === 0) return null;
+  return JSON.stringify({ op: '&', c: conditions, showc });
+}
+
+function buildCompletionFields(data: Record<string, unknown>): {
+  completion: number;
+  completionview: number;
+  completionusegrade: number;
+  completionpassgrade: number;
+  completionexpected: number;
+} {
+  return {
+    completion: Number(data.completion ?? 0),
+    completionview: data.completion === 2 && data.completionview ? 1 : 0,
+    completionusegrade: data.completion === 2 && data.completionusegrade ? 1 : 0,
+    completionpassgrade: data.completion === 2 && data.completionusegrade && data.completionpassgrade ? 1 : 0,
+    completionexpected: data.completion === 2 && data.completionexpected
+      ? dateToTimestamp(data.completionexpected as string)
+      : 0,
+  };
+}
+
 function buildCourseData(data: Record<string, unknown>, sectionCount: number) {
   return {
     fullname: String(data.fullname || 'Untitled Course'),
@@ -324,6 +388,9 @@ export async function exportProject(
 
       const moduleChecksum = computeChecksum(moduleNode.data);
       const existingModule = mappings.get(moduleNode.id);
+      const completionFields = buildCompletionFields(moduleNode.data);
+      const restrictions = (moduleNode.data.restrictions ?? []) as Restriction[];
+      const availability = buildAvailabilityJson(restrictions, mappings);
 
       try {
         if (existingModule?.moodle_id) {
@@ -333,6 +400,8 @@ export async function exportProject(
               intro: String(moduleNode.data.description || ''),
               visible: moduleNode.data.visible !== false ? 1 : 0,
               options: moduleOpts.options,
+              ...completionFields,
+              ...(availability !== null ? { availability } : {}),
             });
             report.updated++;
           }
@@ -346,6 +415,8 @@ export async function exportProject(
             intro: String(moduleNode.data.description || ''),
             visible: moduleNode.data.visible !== false ? 1 : 0,
             options: moduleOpts.options,
+            ...completionFields,
+            ...(availability !== null ? { availability } : {}),
           });
           report.created++;
           await upsertMapping(moduleNode.id, 'module', result.cmid, moduleChecksum);
@@ -353,6 +424,25 @@ export async function exportProject(
       } catch (err) {
         const msg = err instanceof MoodleError ? err.message : String(err);
         report.errors.push({ nodeId: moduleNode.id, nodeName, error: msg });
+      }
+    }
+  }
+
+  // Second pass: apply availability restrictions that reference modules created in this export
+  // (needed when a module restricts access based on another module created in the same export)
+  for (const sectionNode of sectionNodes) {
+    const moduleNodes = sortByPosition(getChildren(sectionNode.id, edges, nodes));
+    for (const moduleNode of moduleNodes) {
+      const restrictions = (moduleNode.data.restrictions ?? []) as Restriction[];
+      if (restrictions.length === 0) continue;
+      const availability = buildAvailabilityJson(restrictions, mappings);
+      if (!availability) continue;
+      const existingModule = mappings.get(moduleNode.id);
+      if (!existingModule?.moodle_id) continue;
+      try {
+        await updateModule(config, existingModule.moodle_id, { availability });
+      } catch {
+        // Non-fatal: availability update failure doesn't block report
       }
     }
   }

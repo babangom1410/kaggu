@@ -236,6 +236,12 @@ export interface KagguModuleInput {
   intro: string;
   visible: number;
   options: Record<string, unknown>;
+  completion?: number;
+  completionview?: number;
+  completionusegrade?: number;
+  completionpassgrade?: number;
+  completionexpected?: number;
+  availability?: string;
 }
 
 export interface KagguModuleResult {
