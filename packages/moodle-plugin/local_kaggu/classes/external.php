@@ -15,6 +15,24 @@ class external extends \external_api {
     // ─── Helpers ─────────────────────────────────────────────────────────────
 
     /**
+     * Directly write completion tracking and availability to course_modules.
+     * update_moduleinfo / add_moduleinfo do not reliably persist these fields
+     * when called outside the form context.
+     */
+    private static function apply_completion_to_cm(\moodle_database $DB, int $cmid, array $params): void {
+        $update = new \stdClass();
+        $update->id               = $cmid;
+        $update->completion         = (int) ($params['completion']          ?? 0);
+        $update->completionview     = (int) ($params['completionview']      ?? 0);
+        $update->completionusegrade = (int) ($params['completionusegrade']  ?? 0);
+        $update->completionpassgrade = (int) ($params['completionpassgrade'] ?? 0);
+        $update->completionexpected  = (int) ($params['completionexpected']  ?? 0);
+        $availability = $params['availability'] ?? '';
+        $update->availability = ($availability !== '' && $availability !== null) ? $availability : null;
+        $DB->update_record('course_modules', $update);
+    }
+
+    /**
      * Check license and capability before any write operation.
      * @throws \moodle_exception
      */
@@ -221,6 +239,12 @@ class external extends \external_api {
             if (!$cmid) {
                 throw new \Exception('add_moduleinfo returned no coursemodule. Keys: ' . implode(',', array_keys((array)$moduleinfo)));
             }
+
+            // add_moduleinfo does not reliably persist completion/availability fields.
+            // Write them directly to course_modules to guarantee they are stored.
+            self::apply_completion_to_cm($DB, $cmid, $params);
+            rebuild_course_cache($params['courseid'], true);
+
             $cm = $DB->get_record('course_modules', ['id' => $cmid], 'instance', MUST_EXIST);
             return [
                 'cmid'       => $cmid,
@@ -468,6 +492,11 @@ class external extends \external_api {
         }
 
         update_moduleinfo($cm, $data, $course);
+
+        // update_moduleinfo does not reliably persist completion/availability fields.
+        // Write them directly to course_modules to guarantee they are stored.
+        self::apply_completion_to_cm($DB, $cm->id, $params);
+        rebuild_course_cache($cm->course, true);
 
         return ['success' => true];
     }
