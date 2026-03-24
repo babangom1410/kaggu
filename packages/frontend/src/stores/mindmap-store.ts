@@ -173,6 +173,7 @@ export const useMindmapStore = create<MindmapState>()(
 
           const nodesToDelete = new Set<string>();
           const collectDescendants = (nodeId: string) => {
+            if (nodesToDelete.has(nodeId)) return;
             nodesToDelete.add(nodeId);
             get()
               .edges.filter((e) => e.source === nodeId)
