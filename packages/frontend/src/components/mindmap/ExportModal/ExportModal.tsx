@@ -11,6 +11,7 @@ type ExportState = 'idle' | 'exporting' | 'done' | 'error';
 export function ExportModal({ onClose }: ExportModalProps) {
   const { projectId, moodleConfig, setMoodleConfig } = useMindmapStore();
   const [state, setState] = useState<ExportState>('idle');
+  const [isResetting, setIsResetting] = useState(false);
   const [report, setReport] = useState<ExportReport | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -33,6 +34,15 @@ export function ExportModal({ onClose }: ExportModalProps) {
 
     setReport(data);
     setState('done');
+  };
+
+  const handleReset = async () => {
+    if (!projectId) return;
+    if (!window.confirm('Supprimer la synchronisation Moodle ? Le prochain export recréera tout le cours depuis zéro.')) return;
+    setIsResetting(true);
+    await moodleApi.resetSync(projectId);
+    if (moodleConfig) setMoodleConfig({ ...moodleConfig, courseId: null });
+    setIsResetting(false);
   };
 
   return (
@@ -72,17 +82,29 @@ export function ExportModal({ onClose }: ExportModalProps) {
                 L'export va créer ou mettre à jour le cours Moodle correspondant à ce projet.
               </p>
               {moodleConfig?.courseId && (
-                <div className="bg-slate-800 rounded-xl p-3 text-xs text-slate-400">
-                  <span>Cours existant : </span>
-                  <a
-                    href={`${moodleConfig.url}/course/view.php?id=${moodleConfig.courseId}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-indigo-400 hover:text-indigo-300 underline"
+                <div className="bg-slate-800 rounded-xl p-3 text-xs text-slate-400 space-y-2">
+                  <div>
+                    <span>Cours existant : </span>
+                    <a
+                      href={`${moodleConfig.url}/course/view.php?id=${moodleConfig.courseId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-indigo-400 hover:text-indigo-300 underline"
+                    >
+                      #{moodleConfig.courseId} ↗
+                    </a>
+                    <span className="ml-1 text-slate-500">— sera mis à jour</span>
+                  </div>
+                  <button
+                    onClick={handleReset}
+                    disabled={isResetting}
+                    className="flex items-center gap-1.5 text-red-400/70 hover:text-red-400 transition-colors disabled:opacity-50"
                   >
-                    #{moodleConfig.courseId} ↗
-                  </a>
-                  <span className="ml-1 text-slate-500">— sera mis à jour</span>
+                    <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                      <path d="M1 5a4 4 0 104-4H4m0-1L2 2l2 2" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                    {isResetting ? 'Réinitialisation…' : 'Réinitialiser la synchronisation (export complet)'}
+                  </button>
                 </div>
               )}
               {!moodleConfig?.courseId && (
