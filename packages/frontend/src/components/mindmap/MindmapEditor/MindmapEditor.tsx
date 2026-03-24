@@ -156,6 +156,13 @@ export function MindmapEditor() {
           onClick: () =>
             addChildNode(nodeId, 'resource', { subtype: 'page', name: 'Nouvelle page', content: '', visible: true }),
         },
+        {
+          label: 'Livre',
+          icon: '📚',
+          color: 'text-amber-600',
+          onClick: () =>
+            addChildNode(nodeId, 'resource', { subtype: 'book', name: 'Nouveau livre', numbering: 1, visible: true }),
+        },
         { type: 'separator', label: 'Activités' },
         {
           label: 'Devoir',
@@ -183,6 +190,20 @@ export function MindmapEditor() {
           color: 'text-violet-600',
           onClick: () =>
             addChildNode(nodeId, 'activity', { subtype: 'forum', name: 'Nouveau forum', type: 'general', visible: true }),
+        },
+        {
+          label: 'H5P',
+          icon: '🎮',
+          color: 'text-violet-600',
+          onClick: () =>
+            addChildNode(nodeId, 'activity', { subtype: 'h5p', name: 'Nouvelle activité H5P', enabletracking: true, grademethod: 1, visible: true }),
+        },
+        {
+          label: 'Glossaire',
+          icon: '📖',
+          color: 'text-violet-600',
+          onClick: () =>
+            addChildNode(nodeId, 'activity', { subtype: 'glossary', name: 'Nouveau glossaire', displayformat: 'dictionary', visible: true }),
         },
         { type: 'separator', label: '' },
         {

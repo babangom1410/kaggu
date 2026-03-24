@@ -167,7 +167,7 @@ class external extends \external_api {
             'options'             => $options,
         ]);
 
-        $allowedTypes = ['assign', 'quiz', 'forum', 'url', 'page', 'resource'];
+        $allowedTypes = ['assign', 'quiz', 'forum', 'url', 'page', 'resource', 'book', 'h5pactivity', 'glossary'];
         if (!in_array($params['moduletype'], $allowedTypes)) {
             throw new \moodle_exception('error_module_type', 'local_kaggu', '', $params['moduletype']);
         }
@@ -402,6 +402,42 @@ class external extends \external_api {
                 $info->revision          = 0;
                 $info->display           = 5;
                 $info->displayoptions    = serialize(['printintro' => 0, 'printlastmodified' => 1]);
+                break;
+
+            case 'book':
+                $info->numbering    = (int)($opts['numbering'] ?? 1);
+                $info->navstyle     = 1; // image buttons
+                $info->customtitles = 0;
+                break;
+
+            case 'h5pactivity':
+                $info->enabletracking  = (int)($opts['enabletracking'] ?? 1);
+                $info->grademethod     = (int)($opts['grademethod']    ?? 1);
+                $info->gradepass       = 0;
+                $info->displayoptions  = 15; // show all UI elements
+                break;
+
+            case 'glossary':
+                $info->globalglossary          = (int)($opts['globalglossary']  ?? 0);
+                $info->mainglossary            = 0;
+                $info->showspecial             = 1;
+                $info->showalphabet            = 1;
+                $info->showall                 = 1;
+                $info->allowcomments           = (int)($opts['allowcomments']   ?? 0);
+                $info->allowprintview          = 1;
+                $info->usedynalink             = 1;
+                $info->defaultapproval         = 1;
+                $info->approvaldisplayformat   = $opts['displayformat'] ?? 'dictionary';
+                $info->displayformat           = $opts['displayformat'] ?? 'dictionary';
+                $info->entbypage               = 10;
+                $info->editalways              = 0;
+                $info->rsstype                 = 0;
+                $info->rssarticles             = 0;
+                $info->assessed                = 0;
+                $info->scale                   = 0;
+                $info->assesstimestart         = 0;
+                $info->assesstimefinish        = 0;
+                $info->completionentries       = 0;
                 break;
         }
     }

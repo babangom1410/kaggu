@@ -194,6 +194,25 @@ function buildModuleOptions(node: BackendNode, fileItemIds?: Map<string, number>
         },
       };
     }
+    if (subtype === 'h5p') {
+      return {
+        moduletype: 'h5pactivity',
+        options: {
+          enabletracking: data.enabletracking !== false ? 1 : 0,
+          grademethod: Number(data.grademethod ?? 1),
+        },
+      };
+    }
+    if (subtype === 'glossary') {
+      return {
+        moduletype: 'glossary',
+        options: {
+          displayformat: String(data.displayformat || 'dictionary'),
+          globalglossary: data.globalglossary ? 1 : 0,
+          allowcomments: data.allowcomments ? 1 : 0,
+        },
+      };
+    }
   }
 
   if (type === 'resource') {
@@ -221,6 +240,12 @@ function buildModuleOptions(node: BackendNode, fileItemIds?: Map<string, number>
       return {
         moduletype: 'resource',
         options: { itemid: itemId, display: 0 },
+      };
+    }
+    if (subtype === 'book') {
+      return {
+        moduletype: 'book',
+        options: { numbering: Number(data.numbering ?? 1) },
       };
     }
   }

@@ -26,7 +26,7 @@ export interface SectionNodeData {
 
 // --- Resource nodes ---
 
-export type ResourceSubtype = 'file' | 'url' | 'page';
+export type ResourceSubtype = 'file' | 'url' | 'page' | 'book';
 
 export interface FileResourceData extends CompletionSettings, RestrictionsSettings {
   subtype: 'file';
@@ -56,11 +56,19 @@ export interface PageResourceData extends CompletionSettings, RestrictionsSettin
   visible: boolean;
 }
 
-export type ResourceNodeData = FileResourceData | UrlResourceData | PageResourceData;
+export interface BookResourceData extends CompletionSettings, RestrictionsSettings {
+  subtype: 'book';
+  name: string;
+  description?: string;
+  numbering?: 0 | 1 | 2 | 3; // 0=none, 1=numbers, 2=bullets, 3=indented
+  visible: boolean;
+}
+
+export type ResourceNodeData = FileResourceData | UrlResourceData | PageResourceData | BookResourceData;
 
 // --- Activity nodes ---
 
-export type ActivitySubtype = 'assign' | 'quiz' | 'forum';
+export type ActivitySubtype = 'assign' | 'quiz' | 'forum' | 'h5p' | 'glossary';
 
 export interface AssignActivityData extends CompletionSettings, RestrictionsSettings {
   subtype: 'assign';
@@ -94,7 +102,26 @@ export interface ForumActivityData extends CompletionSettings, RestrictionsSetti
   visible: boolean;
 }
 
-export type ActivityNodeData = AssignActivityData | QuizActivityData | ForumActivityData;
+export interface H5PActivityData extends CompletionSettings, RestrictionsSettings {
+  subtype: 'h5p';
+  name: string;
+  description?: string;
+  enabletracking?: boolean;
+  grademethod?: 1 | 2 | 3; // 1=max, 2=average, 3=last
+  visible: boolean;
+}
+
+export interface GlossaryActivityData extends CompletionSettings, RestrictionsSettings {
+  subtype: 'glossary';
+  name: string;
+  description?: string;
+  displayformat?: 'dictionary' | 'continuous' | 'compact' | 'fullwithoutauthor' | 'fullwithauthor';
+  globalglossary?: boolean;
+  allowcomments?: boolean;
+  visible: boolean;
+}
+
+export type ActivityNodeData = AssignActivityData | QuizActivityData | ForumActivityData | H5PActivityData | GlossaryActivityData;
 
 // --- Union types ---
 

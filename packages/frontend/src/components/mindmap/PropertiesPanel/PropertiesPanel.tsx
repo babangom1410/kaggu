@@ -464,6 +464,21 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                 />
               </Field>
             )}
+            {data.subtype === 'book' && (
+              <Field label="Numérotation des chapitres">
+                <select
+                  value={String(data.numbering ?? 1)}
+                  onChange={(e) => update('numbering', Number(e.target.value))}
+                  className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                             border border-slate-700 focus:border-indigo-500 focus:outline-none"
+                >
+                  <option value={0}>Aucune</option>
+                  <option value={1}>Nombres (1, 2, 3…)</option>
+                  <option value={2}>Puces</option>
+                  <option value={3}>Indentation</option>
+                </select>
+              </Field>
+            )}
             <Toggle
               checked={Boolean(data.visible)}
               onChange={(v) => update('visible', v)}
@@ -538,6 +553,50 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                   <option value="eachuser">Un sujet par participant</option>
                 </select>
               </Field>
+            )}
+            {data.subtype === 'h5p' && (
+              <>
+                <Toggle
+                  checked={Boolean(data.enabletracking ?? true)}
+                  onChange={(v) => update('enabletracking', v)}
+                  label="Suivi des tentatives"
+                />
+                <Field label="Méthode de notation">
+                  <select
+                    value={String(data.grademethod ?? 1)}
+                    onChange={(e) => update('grademethod', Number(e.target.value))}
+                    className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                               border border-slate-700 focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value={1}>Note la plus haute</option>
+                    <option value={2}>Note moyenne</option>
+                    <option value={3}>Dernière tentative</option>
+                  </select>
+                </Field>
+              </>
+            )}
+            {data.subtype === 'glossary' && (
+              <>
+                <Field label="Format d'affichage">
+                  <select
+                    value={String(data.displayformat ?? 'dictionary')}
+                    onChange={(e) => update('displayformat', e.target.value)}
+                    className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                               border border-slate-700 focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value="dictionary">Dictionnaire</option>
+                    <option value="continuous">Continu</option>
+                    <option value="compact">Compact</option>
+                    <option value="fullwithoutauthor">Complet sans auteur</option>
+                    <option value="fullwithauthor">Complet avec auteur</option>
+                  </select>
+                </Field>
+                <Toggle
+                  checked={Boolean(data.allowcomments)}
+                  onChange={(v) => update('allowcomments', v)}
+                  label="Autoriser les commentaires"
+                />
+              </>
             )}
             <Toggle
               checked={Boolean(data.visible)}
