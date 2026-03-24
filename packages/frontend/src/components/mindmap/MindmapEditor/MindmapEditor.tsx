@@ -64,7 +64,7 @@ type MenuEntry = MenuItem | SeparatorItem;
 export function MindmapEditor() {
   useKeyboardShortcuts();
 
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, setSelectedNode } =
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, deleteNode, setSelectedNode } =
     useMindmapStore();
   const reactFlowRef = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
@@ -183,6 +183,24 @@ export function MindmapEditor() {
           color: 'text-violet-600',
           onClick: () =>
             addChildNode(nodeId, 'activity', { subtype: 'forum', name: 'Nouveau forum', type: 'general', visible: true }),
+        },
+        { type: 'separator', label: '' },
+        {
+          label: 'Supprimer la section',
+          icon: '🗑️',
+          color: 'text-red-500',
+          onClick: () => { deleteNode(nodeId); setSelectedNode(null); setContextMenu(null); },
+        },
+      ];
+    }
+
+    if (nodeType === 'resource' || nodeType === 'activity') {
+      return [
+        {
+          label: 'Supprimer',
+          icon: '🗑️',
+          color: 'text-red-500',
+          onClick: () => { deleteNode(nodeId); setSelectedNode(null); setContextMenu(null); },
         },
       ];
     }
