@@ -112,7 +112,8 @@ function buildAvailabilityJson(
         skippedNoCompletion.push(refName);
         continue;
       }
-      conditions.push({ type: 'completion', id: mapping.moodle_id, e: r.expected === 1 ? 1 : 0 });
+      // Moodle 5.x uses 'cm' (not 'id') as the field name for the cmid
+      conditions.push({ type: 'completion', cm: mapping.moodle_id, e: r.expected === 1 ? 1 : 0 });
       showc.push(true);
     }
   }
