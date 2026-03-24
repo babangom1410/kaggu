@@ -49,7 +49,7 @@ export interface ProjectSummary {
 export interface MoodleConfigApi {
   url: string;
   token: string;
-  courseId: number | null;
+  courseId?: number | null;
   siteInfo?: {
     sitename: string;
     username: string;
@@ -149,5 +149,10 @@ export const moodleApi = {
     request<ImportResult>(`/v1/moodle/projects/${projectId}/import`, {
       method: 'POST',
       body: JSON.stringify({ moodleCourseId }),
+    }),
+
+  resetSync: (projectId: string) =>
+    request<{ ok: boolean }>(`/v1/moodle/projects/${projectId}/reset`, {
+      method: 'DELETE',
     }),
 };

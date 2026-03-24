@@ -68,14 +68,22 @@ interface Restriction {
   expected?: 1 | 0;
 }
 
+interface AvailabilityResult {
+  json: string | null;
+  /** Names of referenced modules that were skipped because they have no completion tracking */
+  skippedNoCompletion: string[];
+}
+
 function buildAvailabilityJson(
   restrictions: Restriction[],
   mappings: Map<string, { moodle_id: number; moodle_type: string }>,
-): string | null {
-  if (!restrictions || restrictions.length === 0) return null;
+  nodes: BackendNode[],
+): AvailabilityResult {
+  if (!restrictions || restrictions.length === 0) return { json: null, skippedNoCompletion: [] };
 
   const conditions: unknown[] = [];
   const showc: boolean[] = [];
+  const skippedNoCompletion: string[] = [];
 
   for (const r of restrictions) {
     if (r.type === 'date') {
@@ -95,13 +103,22 @@ function buildAvailabilityJson(
     } else if (r.type === 'completion') {
       const mapping = r.nodeId ? mappings.get(r.nodeId) : null;
       if (!mapping || mapping.moodle_type !== 'module') continue;
+      // Moodle rejects completion conditions that reference a module with
+      // completion=0.  Skip the condition and surface a warning instead.
+      const refNode = r.nodeId ? nodes.find((n) => n.id === r.nodeId) : null;
+      const refCompletion = Number(refNode?.data?.completion ?? 0);
+      if (refCompletion === 0) {
+        const refName = String(refNode?.data?.name ?? r.nodeId ?? 'unknown');
+        skippedNoCompletion.push(refName);
+        continue;
+      }
       conditions.push({ type: 'completion', id: mapping.moodle_id, e: r.expected === 1 ? 1 : 0 });
       showc.push(true);
     }
   }
 
-  if (conditions.length === 0) return null;
-  return JSON.stringify({ op: '&', c: conditions, showc });
+  if (conditions.length === 0) return { json: null, skippedNoCompletion };
+  return { json: JSON.stringify({ op: '&', c: conditions, showc }), skippedNoCompletion };
 }
 
 function buildCompletionFields(data: Record<string, unknown>): {
@@ -390,7 +407,15 @@ export async function exportProject(
       const existingModule = mappings.get(moduleNode.id);
       const completionFields = buildCompletionFields(moduleNode.data);
       const restrictions = (moduleNode.data.restrictions ?? []) as Restriction[];
-      const availability = buildAvailabilityJson(restrictions, mappings) ?? '';
+      const { json: availabilityJson, skippedNoCompletion } = buildAvailabilityJson(restrictions, mappings, nodes);
+      const availability = availabilityJson ?? '';
+      for (const refName of skippedNoCompletion) {
+        report.errors.push({
+          nodeId: moduleNode.id,
+          nodeName,
+          error: `Restriction ignorée : "${refName}" n'a pas de suivi d'achèvement activé. Activez l'achèvement sur ce module pour que la restriction fonctionne.`,
+        });
+      }
 
       try {
         if (existingModule?.moodle_id) {
@@ -404,6 +429,18 @@ export async function exportProject(
               availability,
             });
             report.updated++;
+          } else {
+            // Checksum matches (content unchanged) — still sync completion and
+            // availability so that course_modules stays correct even if the
+            // Moodle plugin was re-installed or Moodle wrote stale values.
+            await updateModule(config, existingModule.moodle_id, {
+              name: nodeName,
+              intro: String(moduleNode.data.description || ''),
+              visible: moduleNode.data.visible !== false ? 1 : 0,
+              ...completionFields,
+              availability,
+            });
+            report.skipped++;
           }
           await upsertMapping(moduleNode.id, 'module', existingModule.moodle_id, moduleChecksum);
         } else {
@@ -435,8 +472,8 @@ export async function exportProject(
     for (const moduleNode of moduleNodes) {
       const restrictions = (moduleNode.data.restrictions ?? []) as Restriction[];
       if (restrictions.length === 0) continue;
-      const availability = buildAvailabilityJson(restrictions, mappings);
-      if (!availability) continue;
+      const { json: availabilityJson2 } = buildAvailabilityJson(restrictions, mappings, nodes);
+      if (!availabilityJson2) continue;
       const existingModule = mappings.get(moduleNode.id);
       if (!existingModule?.moodle_id) continue;
       try {
@@ -445,7 +482,7 @@ export async function exportProject(
           intro: String(moduleNode.data.description || ''),
           visible: moduleNode.data.visible !== false ? 1 : 0,
           ...buildCompletionFields(moduleNode.data),
-          availability,
+          availability: availabilityJson2,
         });
       } catch {
         // Non-fatal: availability update failure doesn't block report

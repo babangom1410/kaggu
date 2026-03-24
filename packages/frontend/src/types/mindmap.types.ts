@@ -141,7 +141,7 @@ export interface MoodleSiteInfo {
 export interface MoodleConfig {
   url: string;
   token: string;
-  courseId: number | null;
+  courseId?: number | null;
   siteInfo?: MoodleSiteInfo;
 }
 

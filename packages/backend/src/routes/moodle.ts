@@ -104,6 +104,39 @@ router.post('/projects/:id/export', async (req, res) => {
   }
 });
 
+// DELETE /api/v1/moodle/projects/:id/reset — Clear all Moodle mappings for a fresh export
+router.delete('/projects/:id/reset', async (req, res) => {
+  const userId = req.user!.id;
+  const projectId = req.params.id;
+
+  // Verify project ownership
+  const { data: project, error: projErr } = await (await import('../lib/supabase')).supabase
+    .from('projects')
+    .select('id, moodle_config')
+    .eq('id', projectId)
+    .eq('user_id', userId)
+    .single();
+
+  if (projErr || !project) {
+    return res.status(404).json({ error: 'Project not found' });
+  }
+
+  const { supabase } = await import('../lib/supabase');
+
+  // Delete all mappings for this project
+  await supabase.from('moodle_mappings').delete().eq('project_id', projectId);
+
+  // Clear courseId from moodle_config
+  const config = (project.moodle_config as Record<string, unknown>) ?? {};
+  delete config.courseId;
+  await supabase
+    .from('projects')
+    .update({ moodle_config: config, updated_at: new Date().toISOString() })
+    .eq('id', projectId);
+
+  return res.json({ data: { ok: true } });
+});
+
 // POST /api/v1/moodle/projects/:id/import — Import Moodle course into project
 router.post('/projects/:id/import', async (req, res) => {
   const userId = req.user!.id;
