@@ -217,12 +217,16 @@ class external extends \external_api {
         $moduleinfo->cmidnumber          = '';
         $moduleinfo->groupmode           = 0;
         $moduleinfo->groupingid          = 0;
-        $moduleinfo->completion          = (int) $params['completion'];
-        $moduleinfo->completionview      = (int) $params['completionview'];
-        $moduleinfo->completionusegrade  = (int) $params['completionusegrade'];
-        $moduleinfo->completionpassgrade = (int) $params['completionpassgrade'];
-        $moduleinfo->completionexpected  = (int) $params['completionexpected'];
-        $moduleinfo->availability        = $params['availability'];
+        // Do NOT pass completion/availability to add_moduleinfo: Moodle validates
+        // the availability JSON at construction time and throws a coding_exception
+        // if a referenced module has completion=0 (even transiently during export).
+        // apply_completion_to_cm() writes these fields directly after creation.
+        $moduleinfo->completion          = 0;
+        $moduleinfo->completionview      = 0;
+        $moduleinfo->completionusegrade  = 0;
+        $moduleinfo->completionpassgrade = 0;
+        $moduleinfo->completionexpected  = 0;
+        $moduleinfo->availability        = null;
         $moduleinfo->showdescription     = 0;
         $moduleinfo->lang                = '';
         // Moodle 5.x new fields
@@ -476,12 +480,14 @@ class external extends \external_api {
         if ($params['name'] !== '')  $data->name = $params['name'];
         $data->intro              = $params['intro'];
         $data->visible            = (int) $params['visible'];
-        $data->completion         = (int) $params['completion'];
-        $data->completionview     = (int) $params['completionview'];
-        $data->completionusegrade = (int) $params['completionusegrade'];
-        $data->completionpassgrade = (int) $params['completionpassgrade'];
-        $data->completionexpected  = (int) $params['completionexpected'];
-        $data->availability        = $params['availability'] !== '' ? $params['availability'] : null;
+        // Do NOT pass completion/availability to update_moduleinfo for the same
+        // reason as create_module: apply_completion_to_cm() handles these directly.
+        $data->completion         = 0;
+        $data->completionview     = 0;
+        $data->completionusegrade = 0;
+        $data->completionpassgrade = 0;
+        $data->completionexpected  = 0;
+        $data->availability        = null;
 
         $opts = [];
         foreach ($params['options'] as $opt) {
