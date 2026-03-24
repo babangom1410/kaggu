@@ -147,9 +147,12 @@ Retourne UNIQUEMENT le JSON, sans texte avant ni après.`;
       }
     }
 
-    // Try to parse and validate the JSON
+    // Extract JSON even if Claude wrapped it in markdown code fences
     try {
-      const parsed = JSON.parse(fullText.trim());
+      const start = fullText.indexOf('{');
+      const end = fullText.lastIndexOf('}');
+      const jsonText = start !== -1 && end > start ? fullText.slice(start, end + 1) : fullText.trim();
+      const parsed = JSON.parse(jsonText);
       sendSSE(res, 'done', { structure: parsed });
     } catch {
       sendSSE(res, 'done', { raw: fullText });
