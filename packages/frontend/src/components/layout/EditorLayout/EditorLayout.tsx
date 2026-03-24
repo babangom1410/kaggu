@@ -1,3 +1,4 @@
+import { useParams } from 'react-router-dom';
 import { useProject } from '@/hooks/useProject';
 import { useAutoSave } from '@/hooks/useAutoSave';
 import { Toolbar } from '@/components/mindmap/Toolbar';
@@ -6,8 +7,8 @@ import { PropertiesPanel } from '@/components/mindmap/PropertiesPanel';
 import { MoodlePanel } from '@/components/mindmap/MoodlePanel';
 import { useMindmapStore } from '@/stores/mindmap-store';
 
-function ProjectLoader({ children }: { children: React.ReactNode }) {
-  const { ready, error } = useProject();
+function ProjectLoader({ children, projectId }: { children: React.ReactNode; projectId: string }) {
+  const { ready, error } = useProject(projectId);
   useAutoSave();
 
   if (!ready) {
@@ -32,15 +33,17 @@ function ProjectLoader({ children }: { children: React.ReactNode }) {
 }
 
 export function EditorLayout() {
+  const { id } = useParams<{ id: string }>();
   const selectedNodeId = useMindmapStore((s) => s.selectedNodeId);
   const moodlePanelOpen = useMindmapStore((s) => s.moodlePanelOpen);
 
-  // Only one side panel at a time: Moodle panel takes precedence when open
   const showProperties = selectedNodeId && !moodlePanelOpen;
   const showMoodle = moodlePanelOpen;
 
+  if (!id) return null;
+
   return (
-    <ProjectLoader>
+    <ProjectLoader projectId={id}>
       <div className="flex flex-col h-screen w-screen bg-slate-900">
         <Toolbar />
 

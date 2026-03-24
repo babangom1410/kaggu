@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './stores/auth-store';
 import { AuthPage } from './components/auth/AuthPage';
+import { ProjectList } from './components/projects/ProjectList';
 import { EditorLayout } from './components/layout/EditorLayout';
 import { AdminLayout } from './components/admin/AdminLayout';
 import { AdminDashboard } from './components/admin/AdminDashboard';
@@ -36,7 +37,8 @@ function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<EditorLayout />} />
+        <Route path="/" element={<ProjectList />} />
+        <Route path="/projects/:id" element={<EditorLayout />} />
         <Route path="/admin" element={<AdminLayout />}>
           <Route index element={<AdminDashboard />} />
           <Route path="organizations" element={<OrganizationList />} />

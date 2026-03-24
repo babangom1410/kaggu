@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useMindmapStore, generateNodeId } from '@/stores/mindmap-store';
 import { useAuthStore } from '@/stores/auth-store';
 import type { SyncStatus } from '@/stores/mindmap-store';
@@ -129,6 +130,7 @@ function UserMenu() {
 }
 
 export function Toolbar() {
+  const navigate = useNavigate();
   const {
     projectName, setProjectName, addNode, nodes, edges,
     undo, redo, canUndo, canRedo, syncStatus,
@@ -169,6 +171,18 @@ export function Toolbar() {
 
   return (
     <header className="flex items-center gap-3 px-4 h-12 bg-slate-900 border-b border-white/8 shadow-topbar flex-shrink-0 z-10">
+      {/* Back to project list */}
+      <button
+        onClick={() => navigate('/')}
+        title="Retour aux projets"
+        className="w-7 h-7 rounded-lg flex items-center justify-center text-slate-500
+                   hover:bg-white/10 hover:text-slate-300 transition-colors duration-150"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+          <path d="M9 12L4 7l5-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+
       <Logo />
 
       {/* Project name */}
