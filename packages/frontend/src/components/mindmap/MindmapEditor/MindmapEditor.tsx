@@ -4,6 +4,7 @@ import ReactFlow, {
   BackgroundVariant,
   Controls,
   MiniMap,
+  type Edge,
   type ReactFlowInstance,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -69,9 +70,9 @@ export function MindmapEditor() {
 
   // Virtual edges for restriction dependencies (dashed, amber, read-only)
   const restrictionEdges = useMemo(() => {
-    const result: import('reactflow').Edge[] = [];
+    const result: Edge[] = [];
     for (const node of nodes) {
-      const d = node.data as Record<string, unknown>;
+      const d = node.data as unknown as Record<string, unknown>;
       const restrictions = Array.isArray(d.restrictions) ? d.restrictions as Array<Record<string, unknown>> : [];
       restrictions.forEach((r, i) => {
         if ((r.type === 'completion' || r.type === 'grade') && r.nodeId) {
@@ -85,8 +86,6 @@ export function MindmapEditor() {
             labelStyle: { fontSize: 10, fill: '#f59e0b', fontWeight: 600 },
             labelBgStyle: { fill: 'white', fillOpacity: 0.85 },
             deletable: false,
-            selectable: false,
-            focusable: false,
           });
         }
       });
