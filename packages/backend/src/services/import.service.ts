@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import {
   MoodleConnectionConfig,
   getCourseContents,
-  getCourse,
+  resolveCourse,
   computeChecksum,
   moodleModToNodeType,
 } from './moodle.service';
@@ -30,7 +30,7 @@ const MODULE_SPACING = 220;
 export async function importFromMoodle(
   userId: string,
   projectId: string,
-  moodleCourseId: number,
+  courseRef: string,
 ): Promise<{ nodes: ImportedNode[]; edges: ImportedEdge[] }> {
   // 1. Load project and get Moodle config
   const { data: project, error: projErr } = await supabase
@@ -49,26 +49,11 @@ export async function importFromMoodle(
 
   const config: MoodleConnectionConfig = { url: moodleConfig.url, token: moodleConfig.token };
 
-  // 2. Fetch course info + contents from Moodle
-  const [courseResult, sectionsResult] = await Promise.allSettled([
-    getCourse(config, moodleCourseId),
-    getCourseContents(config, moodleCourseId),
-  ]);
+  // 2. Resolve course reference (ID or shortname) and fetch contents
+  const courseInfo = await resolveCourse(config, courseRef);
+  if (!courseInfo) throw new Error(`Cours "${courseRef}" introuvable dans Moodle.`);
 
-  if (courseResult.status === 'rejected') throw courseResult.reason;
-
-  const sections = sectionsResult.status === 'fulfilled' ? sectionsResult.value : [];
-
-  // If getCourse returned empty but sections loaded, course exists — use fallback name
-  const courseInfo = courseResult.value[0] ?? (sections.length > 0 ? {
-    id: moodleCourseId,
-    fullname: `Cours #${moodleCourseId}`,
-    shortname: `C${moodleCourseId}`,
-    categoryid: 1, summary: '', format: 'topics' as const,
-    startdate: 0, enddate: 0, visible: 1,
-  } : null);
-
-  if (!courseInfo) throw new Error(`Course ${moodleCourseId} not found in Moodle. Check the ID and token permissions.`);
+  const sections = await getCourseContents(config, courseInfo.id).catch(() => []);
 
   const nodes: ImportedNode[] = [];
   const edges: ImportedEdge[] = [];
@@ -113,7 +98,7 @@ export async function importFromMoodle(
     project_id: projectId,
     node_id: courseNodeId,
     moodle_type: 'course',
-    moodle_id: moodleCourseId,
+    moodle_id: courseInfo.id,
     last_synced: new Date().toISOString(),
     checksum: null,
   });
@@ -229,7 +214,7 @@ export async function importFromMoodle(
       .update({
         nodes,
         edges,
-        moodle_config: { ...moodleConfig, courseId: moodleCourseId },
+        moodle_config: { ...moodleConfig, courseId: courseInfo.id },
         updated_at: new Date().toISOString(),
       })
       .eq('id', projectId),

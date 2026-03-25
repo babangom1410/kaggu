@@ -189,10 +189,7 @@ export async function getCourseContents(
   });
 }
 
-export async function getCourse(
-  config: MoodleConnectionConfig,
-  courseId: number,
-): Promise<Array<{
+export interface MoodleCourseInfo {
   id: number;
   fullname: string;
   shortname: string;
@@ -202,26 +199,59 @@ export async function getCourse(
   startdate: number;
   enddate: number;
   visible: number;
-}>> {
-  // core_course_get_courses_by_field works with manager-level tokens (no admin required)
+}
+
+async function getCourseByField(
+  config: MoodleConnectionConfig,
+  field: 'id' | 'shortname',
+  value: string,
+): Promise<MoodleCourseInfo | null> {
   try {
-    const result = await moodleCall<{ courses: unknown[] }>(
+    const result = await moodleCall<{ courses: MoodleCourseInfo[] }>(
       config,
       'core_course_get_courses_by_field',
-      { field: 'id', value: String(courseId) },
+      { field, value },
     );
-    if (result.courses && result.courses.length > 0) {
-      return result.courses as Array<{
-        id: number; fullname: string; shortname: string;
-        categoryid: number; summary: string; format: string;
-        startdate: number; enddate: number; visible: number;
-      }>;
-    }
+    return result.courses?.[0] ?? null;
   } catch {
-    // fall through to legacy API
+    return null;
   }
-  // Fallback: core_course_get_courses (requires admin/manager)
-  return moodleCall(config, 'core_course_get_courses', { options: { ids: [courseId] } });
+}
+
+/**
+ * Resolve a course reference (numeric ID or shortname) to a MoodleCourseInfo.
+ * Tries core_course_get_courses_by_field first, falls back to core_course_get_courses.
+ */
+export async function resolveCourse(
+  config: MoodleConnectionConfig,
+  ref: string,
+): Promise<MoodleCourseInfo | null> {
+  const isNumeric = /^\d+$/.test(ref.trim());
+
+  if (isNumeric) {
+    const byId = await getCourseByField(config, 'id', ref.trim());
+    if (byId) return byId;
+    // Fallback: legacy admin API
+    try {
+      const courses = await moodleCall<MoodleCourseInfo[]>(
+        config, 'core_course_get_courses', { options: { ids: [Number(ref)] } },
+      );
+      return courses[0] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  // Shortname lookup
+  return getCourseByField(config, 'shortname', ref.trim());
+}
+
+export async function getCourse(
+  config: MoodleConnectionConfig,
+  courseId: number,
+): Promise<MoodleCourseInfo[]> {
+  const info = await resolveCourse(config, String(courseId));
+  return info ? [info] : [];
 }
 
 // ─── Plugin: local_kaggu ─────────────────────────────────────────────────────

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.middleware';
-import { getSiteInfo, getCategories, checkFunctions, getCourse, getCourseContents, MoodleError } from '../services/moodle.service';
+import { getSiteInfo, getCategories, checkFunctions, resolveCourse, getCourseContents, MoodleError } from '../services/moodle.service';
 import { exportProject } from '../services/export.service';
 import { importFromMoodle } from '../services/import.service';
 
@@ -143,7 +143,7 @@ router.post('/projects/:id/preview', async (req, res) => {
   const projectId = req.params.id;
 
   const schema = z.object({
-    moodleCourseId: z.number().int().positive('Invalid Moodle course ID'),
+    courseRef: z.string().min(1, 'Course ID or shortname is required'),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -171,26 +171,27 @@ router.post('/projects/:id/preview', async (req, res) => {
   try {
     const config = { url: moodleConfig.url, token: moodleConfig.token };
     const [courseResult, sectionsResult] = await Promise.allSettled([
-      getCourse(config, parsed.data.moodleCourseId),
-      getCourseContents(config, parsed.data.moodleCourseId),
+      resolveCourse(config, parsed.data.courseRef),
+      // We need the courseId for getCourseContents — resolve first, then fetch sections
+      resolveCourse(config, parsed.data.courseRef).then((c) =>
+        c ? getCourseContents(config, c.id) : Promise.resolve([])
+      ),
     ]);
 
     if (courseResult.status === 'rejected') {
-      const err = courseResult.reason as Error;
-      return res.status(400).json({ error: err.message });
+      return res.status(400).json({ error: (courseResult.reason as Error).message });
     }
 
-    // If getCourse returned empty but sections loaded, the course exists — use a fallback name
     const sections = sectionsResult.status === 'fulfilled' ? sectionsResult.value : [];
-    const courseInfo = courseResult.value[0] ?? (sections.length > 0 ? {
-      id: parsed.data.moodleCourseId,
-      fullname: `Cours #${parsed.data.moodleCourseId}`,
-      shortname: `C${parsed.data.moodleCourseId}`,
+    const courseInfo = courseResult.value ?? (sections.length > 0 ? {
+      id: 0,
+      fullname: parsed.data.courseRef,
+      shortname: parsed.data.courseRef,
       categoryid: 1, summary: '', format: 'topics',
       startdate: 0, enddate: 0, visible: 1,
     } : null);
 
-    if (!courseInfo) return res.status(404).json({ error: `Course ${parsed.data.moodleCourseId} not found in Moodle. Check the ID and your token permissions.` });
+    if (!courseInfo) return res.status(404).json({ error: `Cours "${parsed.data.courseRef}" introuvable dans Moodle. Vérifiez l'ID ou le nom abrégé.` });
 
     const existingNodes = Array.isArray(project.nodes) ? project.nodes : [];
     const hasContent = existingNodes.length > 1;
@@ -200,7 +201,7 @@ router.post('/projects/:id/preview', async (req, res) => {
       : null;
 
     const preview = {
-      courseId: parsed.data.moodleCourseId,
+      courseId: courseInfo.id,
       courseName: courseInfo.fullname,
       shortname: courseInfo.shortname,
       hasContent,
@@ -232,7 +233,7 @@ router.post('/projects/:id/import', async (req, res) => {
   const projectId = req.params.id;
 
   const schema = z.object({
-    moodleCourseId: z.number().int().positive('Invalid Moodle course ID'),
+    courseRef: z.string().min(1, 'Course ID or shortname is required'),
   });
 
   const parsed = schema.safeParse(req.body);
@@ -241,7 +242,7 @@ router.post('/projects/:id/import', async (req, res) => {
   }
 
   try {
-    const result = await importFromMoodle(userId, projectId, parsed.data.moodleCourseId);
+    const result = await importFromMoodle(userId, projectId, parsed.data.courseRef);
     return res.json({ data: result });
   } catch (err) {
     if (err instanceof MoodleError) {

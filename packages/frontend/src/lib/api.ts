@@ -158,16 +158,16 @@ export const moodleApi = {
       method: 'POST',
     }),
 
-  previewImport: (projectId: string, moodleCourseId: number) =>
+  previewImport: (projectId: string, courseRef: string) =>
     request<ImportPreview>(`/v1/moodle/projects/${projectId}/preview`, {
       method: 'POST',
-      body: JSON.stringify({ moodleCourseId }),
+      body: JSON.stringify({ courseRef }),
     }),
 
-  importFromMoodle: (projectId: string, moodleCourseId: number) =>
+  importFromMoodle: (projectId: string, courseRef: string) =>
     request<ImportResult>(`/v1/moodle/projects/${projectId}/import`, {
       method: 'POST',
-      body: JSON.stringify({ moodleCourseId }),
+      body: JSON.stringify({ courseRef }),
     }),
 
   resetSync: (projectId: string) =>

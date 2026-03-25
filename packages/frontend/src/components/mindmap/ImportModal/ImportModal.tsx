@@ -21,17 +21,17 @@ export function ImportModal({ onClose }: ImportModalProps) {
   const [courseIdInput, setCourseIdInput] = useState(
     moodleConfig?.courseId ? String(moodleConfig.courseId) : '',
   );
+  const courseRef = courseIdInput.trim();
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
 
   const handlePreview = async () => {
-    const courseId = parseInt(courseIdInput, 10);
-    if (!projectId || isNaN(courseId) || courseId <= 0) return;
+    if (!projectId || !courseRef) return;
     setStep('previewing');
     setErrorMsg(null);
 
-    const { data, error } = await moodleApi.previewImport(projectId, courseId);
+    const { data, error } = await moodleApi.previewImport(projectId, courseRef);
     if (error || !data) {
       setErrorMsg(error ?? 'Impossible de charger la prévisualisation');
       setStep('error');
@@ -45,7 +45,7 @@ export function ImportModal({ onClose }: ImportModalProps) {
     if (!projectId || !preview) return;
     setStep('importing');
 
-    const { data, error } = await moodleApi.importFromMoodle(projectId, preview.courseId);
+    const { data, error } = await moodleApi.importFromMoodle(projectId, courseRef || String(preview.courseId));
     if (error || !data) {
       setErrorMsg(error ?? 'Import échoué');
       setStep('error');
@@ -111,21 +111,21 @@ export function ImportModal({ onClose }: ImportModalProps) {
                   ID du cours Moodle
                 </label>
                 <input
-                  type="number"
-                  min={1}
+                  type="text"
                   value={courseIdInput}
                   onChange={(e) => setCourseIdInput(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && handlePreview()}
-                  placeholder="ex. 42"
+                  placeholder="ex. PHYS101 ou 42"
                   className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
                              border border-slate-700 focus:border-sky-500 focus:outline-none
                              placeholder:text-slate-600"
                   autoFocus
                 />
+                <p className="text-xs text-slate-500 mt-1">Nom abrégé du cours (ex. PHYS101) ou identifiant numérique</p>
               </div>
               <button
                 onClick={handlePreview}
-                disabled={!courseIdInput || parseInt(courseIdInput, 10) <= 0}
+                disabled={!courseRef}
                 className="w-full py-2.5 rounded-xl text-sm font-semibold
                            bg-sky-600 text-white hover:bg-sky-500 transition-colors
                            disabled:opacity-40 disabled:cursor-not-allowed"
