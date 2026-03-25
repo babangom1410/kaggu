@@ -127,6 +127,18 @@ export interface ImportResult {
   edges: unknown[];
 }
 
+export interface ImportPreview {
+  courseId: number;
+  courseName: string;
+  shortname: string;
+  hasContent: boolean;
+  sections: {
+    name: string;
+    modulesCount: number;
+    modules: { name: string; modname: string }[];
+  }[];
+}
+
 export const moodleApi = {
   connect: (url: string, token: string) =>
     request<MoodleConnectResult>('/v1/moodle/connect', {
@@ -143,6 +155,12 @@ export const moodleApi = {
   exportProject: (projectId: string) =>
     request<ExportReport>(`/v1/moodle/projects/${projectId}/export`, {
       method: 'POST',
+    }),
+
+  previewImport: (projectId: string, moodleCourseId: number) =>
+    request<ImportPreview>(`/v1/moodle/projects/${projectId}/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ moodleCourseId }),
     }),
 
   importFromMoodle: (projectId: string, moodleCourseId: number) =>

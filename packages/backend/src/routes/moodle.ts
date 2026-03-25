@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.middleware';
-import { getSiteInfo, getCategories, checkFunctions, MoodleError } from '../services/moodle.service';
+import { getSiteInfo, getCategories, checkFunctions, getCourse, getCourseContents, MoodleError } from '../services/moodle.service';
 import { exportProject } from '../services/export.service';
 import { importFromMoodle } from '../services/import.service';
 
@@ -135,6 +135,76 @@ router.delete('/projects/:id/reset', async (req, res) => {
     .eq('id', projectId);
 
   return res.json({ data: { ok: true } });
+});
+
+// POST /api/v1/moodle/projects/:id/preview — Preview Moodle course structure without saving
+router.post('/projects/:id/preview', async (req, res) => {
+  const userId = req.user!.id;
+  const projectId = req.params.id;
+
+  const schema = z.object({
+    moodleCourseId: z.number().int().positive('Invalid Moodle course ID'),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: parsed.error.errors[0].message });
+  }
+
+  // Verify project ownership and get moodle config
+  const { data: project, error: projErr } = await (await import('../lib/supabase')).supabase
+    .from('projects')
+    .select('moodle_config, nodes')
+    .eq('id', projectId)
+    .eq('user_id', userId)
+    .single();
+
+  if (projErr || !project) {
+    return res.status(404).json({ error: 'Project not found or access denied' });
+  }
+
+  const moodleConfig = project.moodle_config as { url: string; token: string } | null;
+  if (!moodleConfig?.url || !moodleConfig?.token) {
+    return res.status(400).json({ error: 'Moodle connection not configured' });
+  }
+
+  try {
+    const config = { url: moodleConfig.url, token: moodleConfig.token };
+    const [courseInfoArr, sections] = await Promise.all([
+      getCourse(config, parsed.data.moodleCourseId),
+      getCourseContents(config, parsed.data.moodleCourseId),
+    ]);
+
+    const courseInfo = courseInfoArr[0];
+    if (!courseInfo) return res.status(404).json({ error: `Course ${parsed.data.moodleCourseId} not found` });
+
+    const existingNodes = Array.isArray(project.nodes) ? project.nodes : [];
+    const hasContent = existingNodes.length > 1; // more than just the course root node
+
+    const preview = {
+      courseId: parsed.data.moodleCourseId,
+      courseName: courseInfo.fullname,
+      shortname: courseInfo.shortname,
+      hasContent,
+      sections: sections
+        .filter((s) => s.section !== 0)
+        .map((s) => ({
+          name: String(s.name || `Section ${s.section}`),
+          modulesCount: s.modules.length,
+          modules: s.modules.map((m) => ({
+            name: String(m.name),
+            modname: String(m.modname),
+          })),
+        })),
+    };
+
+    return res.json({ data: preview });
+  } catch (err) {
+    if (err instanceof MoodleError) {
+      return res.status(400).json({ error: err.message });
+    }
+    return res.status(500).json({ error: (err as Error).message });
+  }
 });
 
 // POST /api/v1/moodle/projects/:id/import — Import Moodle course into project

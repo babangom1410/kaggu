@@ -4,6 +4,7 @@ import { useMindmapStore, generateNodeId } from '@/stores/mindmap-store';
 import { useAuthStore } from '@/stores/auth-store';
 import type { SyncStatus } from '@/stores/mindmap-store';
 import { ExportModal } from '@/components/mindmap/ExportModal';
+import { ImportModal } from '@/components/mindmap/ImportModal/ImportModal';
 import { CourseStructureWizard } from '@/components/mindmap/AiAssistant';
 
 function Logo() {
@@ -139,6 +140,7 @@ export function Toolbar() {
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState(projectName);
   const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [importModalOpen, setImportModalOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
 
   const isMoodleConnected = !!(moodleConfig?.url && moodleConfig?.token);
@@ -306,6 +308,32 @@ export function Toolbar() {
         {isMoodleConnected ? moodleConfig?.siteInfo?.sitename ?? 'Moodle' : 'Moodle'}
       </button>
 
+      {/* Import Moodle */}
+      <button
+        onClick={() => setImportModalOpen(true)}
+        disabled={!isMoodleConnected}
+        title={isMoodleConnected ? 'Importer depuis Moodle' : 'Configurez la connexion Moodle d\'abord'}
+        className={`
+          flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold border
+          transition-all duration-150
+          ${isMoodleConnected
+            ? 'bg-sky-500/15 text-sky-400 border-sky-500/20 hover:bg-sky-500/25 hover:text-sky-300'
+            : 'bg-white/5 text-slate-600 border-white/8 cursor-not-allowed'
+          }
+        `}
+      >
+        <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+          <path
+            d="M6 11V4M3 7l3-3 3 3M1 11h10"
+            stroke="currentColor"
+            strokeWidth="1.4"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+        Import
+      </button>
+
       {/* Export Moodle */}
       <button
         onClick={() => setExportModalOpen(true)}
@@ -334,6 +362,9 @@ export function Toolbar() {
 
       {/* User menu */}
       <UserMenu />
+
+      {/* Import modal */}
+      {importModalOpen && <ImportModal onClose={() => setImportModalOpen(false)} />}
 
       {/* Export modal */}
       {exportModalOpen && <ExportModal onClose={() => setExportModalOpen(false)} />}
