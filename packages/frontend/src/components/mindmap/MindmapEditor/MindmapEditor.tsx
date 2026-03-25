@@ -237,6 +237,27 @@ export function MindmapEditor() {
           onClick: () =>
             addChildNode(nodeId, 'activity', { subtype: 'glossary', name: 'Nouveau glossaire', displayformat: 'dictionary', visible: true }),
         },
+        {
+          label: 'SCORM',
+          icon: '🎯',
+          color: 'text-violet-600',
+          onClick: () =>
+            addChildNode(nodeId, 'activity', { subtype: 'scorm', name: 'Nouveau SCORM', maxattempt: 0, grademethod: 1, visible: true }),
+        },
+        {
+          label: 'Leçon',
+          icon: '📘',
+          color: 'text-violet-600',
+          onClick: () =>
+            addChildNode(nodeId, 'activity', { subtype: 'lesson', name: 'Nouvelle leçon', maxattempts: 0, visible: true }),
+        },
+        {
+          label: 'Choix',
+          icon: '📊',
+          color: 'text-violet-600',
+          onClick: () =>
+            addChildNode(nodeId, 'activity', { subtype: 'choice', name: 'Nouveau choix', allowupdate: true, showresults: 1, visible: true }),
+        },
         { type: 'separator', label: '' },
         {
           label: 'Supprimer la section',

@@ -615,6 +615,71 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                 />
               </>
             )}
+            {data.subtype === 'scorm' && (
+              <>
+                <Field label="Tentatives max (0 = illimité)">
+                  <TextInput
+                    value={String(data.maxattempt ?? 0)}
+                    onChange={(v) => update('maxattempt', Number(v))}
+                    placeholder="0"
+                  />
+                </Field>
+                <Field label="Méthode de notation">
+                  <select
+                    value={String(data.grademethod ?? 1)}
+                    onChange={(e) => update('grademethod', Number(e.target.value))}
+                    className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                               border border-slate-700 focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value={0}>Objets d'apprentissage</option>
+                    <option value={1}>Tentative la plus haute</option>
+                  </select>
+                </Field>
+              </>
+            )}
+            {data.subtype === 'lesson' && (
+              <>
+                <Field label="Tentatives max (0 = illimité)">
+                  <TextInput
+                    value={String(data.maxattempts ?? 0)}
+                    onChange={(v) => update('maxattempts', Number(v))}
+                    placeholder="0"
+                  />
+                </Field>
+                <Toggle
+                  checked={Boolean(data.retake)}
+                  onChange={(v) => update('retake', v)}
+                  label="Autoriser les reprises"
+                />
+                <Toggle
+                  checked={Boolean(data.review)}
+                  onChange={(v) => update('review', v)}
+                  label="Mode révision"
+                />
+              </>
+            )}
+            {data.subtype === 'choice' && (
+              <>
+                <Field label="Affichage des résultats">
+                  <select
+                    value={String(data.showresults ?? 1)}
+                    onChange={(e) => update('showresults', Number(e.target.value))}
+                    className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                               border border-slate-700 focus:border-indigo-500 focus:outline-none"
+                  >
+                    <option value={0}>Jamais</option>
+                    <option value={1}>Après réponse</option>
+                    <option value={2}>Après fermeture</option>
+                    <option value={3}>Toujours</option>
+                  </select>
+                </Field>
+                <Toggle
+                  checked={Boolean(data.allowupdate ?? true)}
+                  onChange={(v) => update('allowupdate', v)}
+                  label="Autoriser la modification du choix"
+                />
+              </>
+            )}
             <Toggle
               checked={Boolean(data.visible)}
               onChange={(v) => update('visible', v)}

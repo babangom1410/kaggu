@@ -167,7 +167,7 @@ class external extends \external_api {
             'options'             => $options,
         ]);
 
-        $allowedTypes = ['assign', 'quiz', 'forum', 'url', 'page', 'resource', 'book', 'h5pactivity', 'glossary'];
+        $allowedTypes = ['assign', 'quiz', 'forum', 'url', 'page', 'resource', 'book', 'h5pactivity', 'glossary', 'scorm', 'lesson', 'choice'];
         if (!in_array($params['moduletype'], $allowedTypes)) {
             throw new \moodle_exception('error_module_type', 'local_kaggu', '', $params['moduletype']);
         }
@@ -438,6 +438,70 @@ class external extends \external_api {
                 $info->assesstimestart         = 0;
                 $info->assesstimefinish        = 0;
                 $info->completionentries       = 0;
+                break;
+
+            case 'scorm':
+                $info->scormtype       = 'local';
+                $info->maxattempt      = (int)($opts['maxattempt']  ?? 0);
+                $info->grademethod     = (int)($opts['grademethod'] ?? 1);
+                $info->whatgrade       = (int)($opts['whatgrade']   ?? 0);
+                $info->maxgrade        = (int)($opts['maxgrade']    ?? 100);
+                $info->forcecompleted  = 0;
+                $info->forcenewattempt = 0;
+                $info->lastattemptlock = 0;
+                $info->displayattemptstatus = 1;
+                $info->displaycoursestructure = 0;
+                $info->skipview        = 1;
+                $info->nav             = 1;
+                $info->navpositionleft = -100;
+                $info->navpositiontop  = -100;
+                $info->auto            = 0;
+                $info->popup           = 0;
+                $info->width           = 100;
+                $info->height          = 500;
+                $info->updatefreq      = 0;
+                break;
+
+            case 'lesson':
+                $info->maxattempts     = (int)($opts['maxattempts'] ?? 0);
+                $info->timelimit       = (int)($opts['timelimit']   ?? 0);
+                $info->retake          = (int)($opts['retake']      ?? 0);
+                $info->review          = (int)($opts['review']      ?? 0);
+                $info->grade           = 100;
+                $info->custom          = 0;
+                $info->ongoing         = 0;
+                $info->usemaxgrade     = 0;
+                $info->maxpages        = 0;
+                $info->practice        = 0;
+                $info->modattempts     = 0;
+                $info->usepassword     = 0;
+                $info->password        = '';
+                $info->dependency      = 0;
+                $info->conditions      = '';
+                $info->activitylink    = 0;
+                $info->available       = 0;
+                $info->deadline        = 0;
+                $info->slideshow       = 0;
+                $info->width           = 640;
+                $info->height          = 480;
+                $info->bgcolor         = '#ffffff';
+                $info->displayleft     = 0;
+                $info->displayleftif   = 0;
+                $info->progressbar     = 0;
+                break;
+
+            case 'choice':
+                $info->allowupdate   = (int)($opts['allowupdate']  ?? 1);
+                $info->showresults   = (int)($opts['showresults']  ?? 1);
+                $info->display       = 0; // horizontal
+                $info->publish       = 0;
+                $info->allowmultiple = 0;
+                $info->limitanswers  = 0;
+                $info->timeopen      = 0;
+                $info->timeclose     = 0;
+                $info->showavailable = 0;
+                $info->option       = ['Option 1', 'Option 2'];
+                $info->limit        = [0, 0];
                 break;
         }
     }

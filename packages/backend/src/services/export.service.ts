@@ -215,6 +215,37 @@ function buildModuleOptions(node: BackendNode, fileItemIds?: Map<string, number>
         },
       };
     }
+    if (subtype === 'scorm') {
+      return {
+        moduletype: 'scorm',
+        options: {
+          maxattempt: Number(data.maxattempt ?? 0),
+          grademethod: Number(data.grademethod ?? 1),
+          whatgrade: Number(data.whatgrade ?? 0),
+          maxgrade: Number(data.maxgrade ?? 100),
+        },
+      };
+    }
+    if (subtype === 'lesson') {
+      return {
+        moduletype: 'lesson',
+        options: {
+          maxattempts: Number(data.maxattempts ?? 0),
+          timelimit: Number(data.timelimit ?? 0),
+          retake: data.retake ? 1 : 0,
+          review: data.review ? 1 : 0,
+        },
+      };
+    }
+    if (subtype === 'choice') {
+      return {
+        moduletype: 'choice',
+        options: {
+          allowupdate: data.allowupdate !== false ? 1 : 0,
+          showresults: Number(data.showresults ?? 1),
+        },
+      };
+    }
   }
 
   if (type === 'resource') {

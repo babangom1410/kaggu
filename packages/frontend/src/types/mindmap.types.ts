@@ -68,7 +68,7 @@ export type ResourceNodeData = FileResourceData | UrlResourceData | PageResource
 
 // --- Activity nodes ---
 
-export type ActivitySubtype = 'assign' | 'quiz' | 'forum' | 'h5p' | 'glossary';
+export type ActivitySubtype = 'assign' | 'quiz' | 'forum' | 'h5p' | 'glossary' | 'scorm' | 'lesson' | 'choice';
 
 export interface AssignActivityData extends CompletionSettings, RestrictionsSettings {
   subtype: 'assign';
@@ -121,7 +121,38 @@ export interface GlossaryActivityData extends CompletionSettings, RestrictionsSe
   visible: boolean;
 }
 
-export type ActivityNodeData = AssignActivityData | QuizActivityData | ForumActivityData | H5PActivityData | GlossaryActivityData;
+export interface ScormActivityData extends CompletionSettings, RestrictionsSettings {
+  subtype: 'scorm';
+  name: string;
+  description?: string;
+  maxattempt?: number;       // 0 = unlimited
+  maxgrade?: number;
+  grademethod?: 0 | 1;      // 0=learning objects, 1=highest attempt
+  whatgrade?: 0 | 1 | 2 | 3; // 0=highest, 1=average, 2=first, 3=last
+  visible: boolean;
+}
+
+export interface LessonActivityData extends CompletionSettings, RestrictionsSettings {
+  subtype: 'lesson';
+  name: string;
+  description?: string;
+  maxattempts?: number;
+  timelimit?: number;        // seconds, 0=no limit
+  retake?: boolean;
+  review?: boolean;
+  visible: boolean;
+}
+
+export interface ChoiceActivityData extends CompletionSettings, RestrictionsSettings {
+  subtype: 'choice';
+  name: string;
+  description?: string;
+  allowupdate?: boolean;
+  showresults?: 0 | 1 | 2 | 3; // 0=never, 1=after answer, 2=after close, 3=always
+  visible: boolean;
+}
+
+export type ActivityNodeData = AssignActivityData | QuizActivityData | ForumActivityData | H5PActivityData | GlossaryActivityData | ScormActivityData | LessonActivityData | ChoiceActivityData;
 
 // --- Union types ---
 

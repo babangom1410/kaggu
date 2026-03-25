@@ -346,11 +346,11 @@ export function moodleModToNodeType(modname: string): {
     assign: 'assign',
     quiz: 'quiz',
     forum: 'forum',
-    choice: 'forum',
-    scorm: 'assign',
-    lesson: 'assign',
     h5pactivity: 'h5p',
     glossary: 'glossary',
+    scorm: 'scorm',
+    lesson: 'lesson',
+    choice: 'choice',
   };
   if (resources[modname]) return { type: 'resource', subtype: resources[modname] };
   if (activities[modname]) return { type: 'activity', subtype: activities[modname] };

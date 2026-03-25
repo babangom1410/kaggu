@@ -8,6 +8,9 @@ const SUBTYPE_META: Record<string, { icon: string; label: string }> = {
   forum:    { icon: '💬', label: 'Forum' },
   h5p:      { icon: '🎮', label: 'H5P' },
   glossary: { icon: '📖', label: 'Glossaire' },
+  scorm:    { icon: '🎯', label: 'SCORM' },
+  lesson:   { icon: '📘', label: 'Leçon' },
+  choice:   { icon: '📊', label: 'Choix' },
 };
 
 function ActivityNodeComponent({ data, selected }: NodeProps<ActivityNodeData>) {

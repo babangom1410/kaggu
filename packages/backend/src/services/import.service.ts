@@ -166,6 +166,12 @@ export async function importFromMoodle(
           data = { ...data, enabletracking: true, grademethod: 1 };
         } else if (subtype === 'glossary') {
           data = { ...data, displayformat: 'dictionary', allowcomments: false };
+        } else if (subtype === 'scorm') {
+          data = { ...data, maxattempt: 0, grademethod: 1, whatgrade: 0, maxgrade: 100 };
+        } else if (subtype === 'lesson') {
+          data = { ...data, maxattempts: 0, retake: false, review: false };
+        } else if (subtype === 'choice') {
+          data = { ...data, allowupdate: true, showresults: 1 };
         }
       } else {
         data = { ...data, subtype };
