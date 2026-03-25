@@ -170,22 +170,34 @@ router.post('/projects/:id/preview', async (req, res) => {
 
   try {
     const config = { url: moodleConfig.url, token: moodleConfig.token };
-    const [courseInfoArr, sections] = await Promise.all([
+    const [courseResult, sectionsResult] = await Promise.allSettled([
       getCourse(config, parsed.data.moodleCourseId),
       getCourseContents(config, parsed.data.moodleCourseId),
     ]);
 
-    const courseInfo = courseInfoArr[0];
+    if (courseResult.status === 'rejected') {
+      const err = courseResult.reason as Error;
+      return res.status(400).json({ error: err.message });
+    }
+
+    const courseInfo = courseResult.value[0];
     if (!courseInfo) return res.status(404).json({ error: `Course ${parsed.data.moodleCourseId} not found` });
 
     const existingNodes = Array.isArray(project.nodes) ? project.nodes : [];
-    const hasContent = existingNodes.length > 1; // more than just the course root node
+    const hasContent = existingNodes.length > 1;
+
+    // If sections failed (e.g. broken module record in Moodle), still return course info
+    const sections = sectionsResult.status === 'fulfilled' ? sectionsResult.value : [];
+    const sectionsWarning = sectionsResult.status === 'rejected'
+      ? `Impossible de charger les sections : ${(sectionsResult.reason as Error).message}`
+      : null;
 
     const preview = {
       courseId: parsed.data.moodleCourseId,
       courseName: courseInfo.fullname,
       shortname: courseInfo.shortname,
       hasContent,
+      sectionsWarning,
       sections: sections
         .filter((s) => s.section !== 0)
         .map((s) => ({

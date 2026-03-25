@@ -50,13 +50,18 @@ export async function importFromMoodle(
   const config: MoodleConnectionConfig = { url: moodleConfig.url, token: moodleConfig.token };
 
   // 2. Fetch course info + contents from Moodle
-  const [courseInfoArr, sections] = await Promise.all([
+  const [courseResult, sectionsResult] = await Promise.allSettled([
     getCourse(config, moodleCourseId),
     getCourseContents(config, moodleCourseId),
   ]);
 
-  const courseInfo = courseInfoArr[0];
+  if (courseResult.status === 'rejected') throw courseResult.reason;
+
+  const courseInfo = courseResult.value[0];
   if (!courseInfo) throw new Error(`Course ${moodleCourseId} not found in Moodle`);
+
+  // If sections failed (broken module records in Moodle), continue with empty sections
+  const sections = sectionsResult.status === 'fulfilled' ? sectionsResult.value : [];
 
   const nodes: ImportedNode[] = [];
   const edges: ImportedEdge[] = [];

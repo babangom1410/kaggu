@@ -163,6 +163,17 @@ export function ImportModal({ onClose }: ImportModalProps) {
                 </div>
               )}
 
+              {/* Sections fetch warning (broken Moodle records) */}
+              {preview.sectionsWarning && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 flex gap-2.5">
+                  <span className="text-red-400 flex-shrink-0">⚠</span>
+                  <div className="text-xs text-red-300 leading-relaxed space-y-1">
+                    <p className="font-medium">Impossible de charger les sections du cours.</p>
+                    <p className="text-red-400/70">Ce cours contient probablement des modules avec des données incomplètes dans Moodle (ex. SCORM sans fichier, Leçon sans page). Vous pouvez quand même tenter l'import — les modules problématiques seront ignorés.</p>
+                  </div>
+                </div>
+              )}
+
               {/* Sections list */}
               <div className="space-y-1 max-h-52 overflow-y-auto">
                 {preview.sections.map((section, i) => (

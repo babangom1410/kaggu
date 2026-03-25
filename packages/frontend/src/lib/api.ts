@@ -132,6 +132,7 @@ export interface ImportPreview {
   courseName: string;
   shortname: string;
   hasContent: boolean;
+  sectionsWarning: string | null;
   sections: {
     name: string;
     modulesCount: number;
