@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.middleware';
-import { getSiteInfo, getCategories, checkFunctions, resolveCourse, getCourseContents, MoodleError } from '../services/moodle.service';
+import { getSiteInfo, getCategories, checkFunctions, resolveCourse, searchCourses, getCourseContents, MoodleError } from '../services/moodle.service';
 import { exportProject } from '../services/export.service';
 import { importFromMoodle } from '../services/import.service';
 
@@ -135,6 +135,28 @@ router.delete('/projects/:id/reset', async (req, res) => {
     .eq('id', projectId);
 
   return res.json({ data: { ok: true } });
+});
+
+// GET /api/v1/moodle/projects/:id/search-courses?q=xxx — Search available Moodle courses
+router.get('/projects/:id/search-courses', async (req, res) => {
+  const userId = req.user!.id;
+  const projectId = req.params.id;
+  const query = String(req.query.q ?? '');
+
+  const { data: project } = await (await import('../lib/supabase')).supabase
+    .from('projects')
+    .select('moodle_config')
+    .eq('id', projectId)
+    .eq('user_id', userId)
+    .single();
+
+  const moodleConfig = project?.moodle_config as { url: string; token: string } | null;
+  if (!moodleConfig?.url || !moodleConfig?.token) {
+    return res.status(400).json({ error: 'Moodle connection not configured' });
+  }
+
+  const courses = await searchCourses({ url: moodleConfig.url, token: moodleConfig.token }, query);
+  return res.json({ data: courses.map((c) => ({ id: c.id, fullname: c.fullname, shortname: c.shortname })) });
 });
 
 // POST /api/v1/moodle/projects/:id/preview — Preview Moodle course structure without saving

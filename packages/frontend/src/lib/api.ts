@@ -158,6 +158,11 @@ export const moodleApi = {
       method: 'POST',
     }),
 
+  searchCourses: (projectId: string, q: string) =>
+    request<{ id: number; fullname: string; shortname: string }[]>(
+      `/v1/moodle/projects/${projectId}/search-courses?q=${encodeURIComponent(q)}`,
+    ),
+
   previewImport: (projectId: string, courseRef: string) =>
     request<ImportPreview>(`/v1/moodle/projects/${projectId}/preview`, {
       method: 'POST',

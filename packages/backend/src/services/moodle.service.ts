@@ -201,6 +201,22 @@ export interface MoodleCourseInfo {
   visible: number;
 }
 
+export async function searchCourses(
+  config: MoodleConnectionConfig,
+  query: string,
+): Promise<MoodleCourseInfo[]> {
+  try {
+    const result = await moodleCall<{ courses: MoodleCourseInfo[]; total: number }>(
+      config,
+      'core_course_search_courses',
+      { criterianame: 'search', criteriavalue: query, page: 0, perpage: 20 },
+    );
+    return result.courses ?? [];
+  } catch {
+    return [];
+  }
+}
+
 async function getCourseByField(
   config: MoodleConnectionConfig,
   field: 'id' | 'shortname',
@@ -242,8 +258,16 @@ export async function resolveCourse(
     }
   }
 
-  // Shortname lookup
-  return getCourseByField(config, 'shortname', ref.trim());
+  // Shortname exact lookup
+  const byShortname = await getCourseByField(config, 'shortname', ref.trim());
+  if (byShortname) return byShortname;
+
+  // Fallback: full-text search (case-insensitive, partial match)
+  const results = await searchCourses(config, ref.trim());
+  return results.find(
+    (c) => c.shortname.toLowerCase() === ref.trim().toLowerCase()
+      || c.fullname.toLowerCase().includes(ref.trim().toLowerCase()),
+  ) ?? null;
 }
 
 export async function getCourse(

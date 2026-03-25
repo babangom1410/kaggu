@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { moodleApi, type ImportPreview } from '@/lib/api';
 import { useMindmapStore } from '@/stores/mindmap-store';
 import type { MindmapNode, MindmapEdge } from '@/types/mindmap.types';
@@ -25,6 +25,24 @@ export function ImportModal({ onClose }: ImportModalProps) {
   const [preview, setPreview] = useState<ImportPreview | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [expandedSections, setExpandedSections] = useState<Set<number>>(new Set());
+
+  // Course search suggestions
+  const [suggestions, setSuggestions] = useState<{ id: number; fullname: string; shortname: string }[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!projectId || courseRef.length < 2) { setSuggestions([]); return; }
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    setSearching(true);
+    searchTimer.current = setTimeout(async () => {
+      const { data } = await moodleApi.searchCourses(projectId, courseRef);
+      setSuggestions(data ?? []);
+      setShowSuggestions(true);
+      setSearching(false);
+    }, 400);
+  }, [courseRef, projectId]);
 
   const handlePreview = async () => {
     if (!projectId || !courseRef) return;
@@ -110,18 +128,42 @@ export function ImportModal({ onClose }: ImportModalProps) {
                 <label className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
                   ID du cours Moodle
                 </label>
-                <input
-                  type="text"
-                  value={courseIdInput}
-                  onChange={(e) => setCourseIdInput(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handlePreview()}
-                  placeholder="ex. PHYS101 ou 42"
-                  className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
-                             border border-slate-700 focus:border-sky-500 focus:outline-none
-                             placeholder:text-slate-600"
-                  autoFocus
-                />
-                <p className="text-xs text-slate-500 mt-1">Nom abrégé du cours (ex. PHYS101) ou identifiant numérique</p>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={courseIdInput}
+                    onChange={(e) => { setCourseIdInput(e.target.value); setShowSuggestions(true); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { setShowSuggestions(false); handlePreview(); } if (e.key === 'Escape') setShowSuggestions(false); }}
+                    onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+                    placeholder="Rechercher par nom ou ID..."
+                    className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                               border border-slate-700 focus:border-sky-500 focus:outline-none
+                               placeholder:text-slate-600"
+                    autoFocus
+                  />
+                  {searching && (
+                    <div className="absolute right-3 top-2.5">
+                      <div className="w-4 h-4 border-2 border-sky-500 border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
+                  {showSuggestions && suggestions.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-slate-800 border border-slate-600 rounded-xl shadow-2xl overflow-hidden max-h-48 overflow-y-auto">
+                      {suggestions.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          className="w-full flex items-center gap-2 px-3 py-2.5 text-left hover:bg-slate-700 transition-colors"
+                          onClick={() => { setCourseIdInput(String(c.id)); setShowSuggestions(false); }}
+                        >
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm text-slate-200 truncate">{c.fullname}</div>
+                            <div className="text-xs text-slate-500">{c.shortname} · #{c.id}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
               <button
                 onClick={handlePreview}
