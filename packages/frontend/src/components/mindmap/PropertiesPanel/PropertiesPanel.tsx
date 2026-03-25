@@ -230,6 +230,23 @@ function CompletionPanel({ data, update, nodes, nodeId }: CompletionPanelProps) 
                 )}
               </div>
             ))}
+            {restrictions.length > 1 && (
+              <div className="flex items-center justify-between py-1">
+                <span className="text-[11px] text-slate-500">Combiner les conditions</span>
+                <div className="flex rounded-lg overflow-hidden border border-slate-700">
+                  {(['&', '|'] as const).map((op) => (
+                    <button key={op}
+                      onClick={() => update('restrictionOperator', op)}
+                      className={`px-2.5 py-1 text-xs font-semibold transition-colors
+                        ${(data.restrictionOperator ?? '&') === op
+                          ? 'bg-indigo-500 text-white'
+                          : 'bg-slate-800 text-slate-400 hover:text-slate-200'}`}>
+                      {op === '&' ? 'ET' : 'OU'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <div className="flex gap-1.5">
               {(['date', 'grade', 'completion'] as Restriction['type'][]).map((t) => (
                 <button key={t} onClick={() => addRestriction(t)}

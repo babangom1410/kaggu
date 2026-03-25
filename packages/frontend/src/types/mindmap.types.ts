@@ -148,6 +148,7 @@ export type Restriction =
 
 export interface RestrictionsSettings {
   restrictions?: Restriction[];
+  restrictionOperator?: '&' | '|';
 }
 
 export type MindmapNodeType = 'course' | 'section' | 'resource' | 'activity';

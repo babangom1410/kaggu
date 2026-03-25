@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactFlow, {
   Background,
   BackgroundVariant,
@@ -66,6 +66,33 @@ export function MindmapEditor() {
 
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, deleteNode, setSelectedNode } =
     useMindmapStore();
+
+  // Virtual edges for restriction dependencies (dashed, amber, read-only)
+  const restrictionEdges = useMemo(() => {
+    const result: import('reactflow').Edge[] = [];
+    for (const node of nodes) {
+      const d = node.data as Record<string, unknown>;
+      const restrictions = Array.isArray(d.restrictions) ? d.restrictions as Array<Record<string, unknown>> : [];
+      restrictions.forEach((r, i) => {
+        if ((r.type === 'completion' || r.type === 'grade') && r.nodeId) {
+          result.push({
+            id: `restriction-${node.id}-${i}`,
+            source: String(r.nodeId),
+            target: node.id,
+            type: 'smoothstep',
+            style: { stroke: '#f59e0b', strokeDasharray: '6,3', strokeWidth: 1.5, opacity: 0.75 },
+            label: r.type === 'completion' ? '✅' : '⭐',
+            labelStyle: { fontSize: 10, fill: '#f59e0b', fontWeight: 600 },
+            labelBgStyle: { fill: 'white', fillOpacity: 0.85 },
+            deletable: false,
+            selectable: false,
+            focusable: false,
+          });
+        }
+      });
+    }
+    return result;
+  }, [nodes]);
   const reactFlowRef = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
@@ -233,9 +260,12 @@ export function MindmapEditor() {
     <div ref={reactFlowRef} className="relative w-full h-full bg-slate-100">
       <ReactFlow
         nodes={nodes}
-        edges={edges}
+        edges={[...edges, ...restrictionEdges]}
         onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
+        onEdgesChange={(changes) => {
+          // Ignore changes on virtual restriction edges
+          onEdgesChange(changes.filter((c) => !('id' in c && String(c.id).startsWith('restriction-'))));
+        }}
         onConnect={onConnect}
         onNodeClick={onNodeClick}
         onPaneClick={onPaneClick}

@@ -78,6 +78,7 @@ function buildAvailabilityJson(
   restrictions: Restriction[],
   mappings: Map<string, { moodle_id: number; moodle_type: string }>,
   nodes: BackendNode[],
+  operator?: string,
 ): AvailabilityResult {
   if (!restrictions || restrictions.length === 0) return { json: null, skippedNoCompletion: [] };
 
@@ -119,7 +120,8 @@ function buildAvailabilityJson(
   }
 
   if (conditions.length === 0) return { json: null, skippedNoCompletion };
-  return { json: JSON.stringify({ op: '&', c: conditions, showc }), skippedNoCompletion };
+  const op = operator === '|' ? '|' : '&';
+  return { json: JSON.stringify({ op, c: conditions, showc }), skippedNoCompletion };
 }
 
 function buildCompletionFields(data: Record<string, unknown>): {
@@ -433,7 +435,8 @@ export async function exportProject(
       const existingModule = mappings.get(moduleNode.id);
       const completionFields = buildCompletionFields(moduleNode.data);
       const restrictions = (moduleNode.data.restrictions ?? []) as Restriction[];
-      const { json: availabilityJson, skippedNoCompletion } = buildAvailabilityJson(restrictions, mappings, nodes);
+      const operator = moduleNode.data.restrictionOperator as string | undefined;
+      const { json: availabilityJson, skippedNoCompletion } = buildAvailabilityJson(restrictions, mappings, nodes, operator);
       const availability = availabilityJson ?? '';
       for (const refName of skippedNoCompletion) {
         report.errors.push({
@@ -498,7 +501,7 @@ export async function exportProject(
     for (const moduleNode of moduleNodes) {
       const restrictions = (moduleNode.data.restrictions ?? []) as Restriction[];
       if (restrictions.length === 0) continue;
-      const { json: availabilityJson2 } = buildAvailabilityJson(restrictions, mappings, nodes);
+      const { json: availabilityJson2 } = buildAvailabilityJson(restrictions, mappings, nodes, moduleNode.data.restrictionOperator as string | undefined);
       if (!availabilityJson2) continue;
       const existingModule = mappings.get(moduleNode.id);
       if (!existingModule?.moodle_id) continue;
