@@ -180,14 +180,21 @@ router.post('/projects/:id/preview', async (req, res) => {
       return res.status(400).json({ error: err.message });
     }
 
-    const courseInfo = courseResult.value[0];
-    if (!courseInfo) return res.status(404).json({ error: `Course ${parsed.data.moodleCourseId} not found` });
+    // If getCourse returned empty but sections loaded, the course exists — use a fallback name
+    const sections = sectionsResult.status === 'fulfilled' ? sectionsResult.value : [];
+    const courseInfo = courseResult.value[0] ?? (sections.length > 0 ? {
+      id: parsed.data.moodleCourseId,
+      fullname: `Cours #${parsed.data.moodleCourseId}`,
+      shortname: `C${parsed.data.moodleCourseId}`,
+      categoryid: 1, summary: '', format: 'topics',
+      startdate: 0, enddate: 0, visible: 1,
+    } : null);
+
+    if (!courseInfo) return res.status(404).json({ error: `Course ${parsed.data.moodleCourseId} not found in Moodle. Check the ID and your token permissions.` });
 
     const existingNodes = Array.isArray(project.nodes) ? project.nodes : [];
     const hasContent = existingNodes.length > 1;
 
-    // If sections failed (e.g. broken module record in Moodle), still return course info
-    const sections = sectionsResult.status === 'fulfilled' ? sectionsResult.value : [];
     const sectionsWarning = sectionsResult.status === 'rejected'
       ? `Impossible de charger les sections : ${(sectionsResult.reason as Error).message}`
       : null;

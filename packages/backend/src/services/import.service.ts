@@ -57,11 +57,18 @@ export async function importFromMoodle(
 
   if (courseResult.status === 'rejected') throw courseResult.reason;
 
-  const courseInfo = courseResult.value[0];
-  if (!courseInfo) throw new Error(`Course ${moodleCourseId} not found in Moodle`);
-
-  // If sections failed (broken module records in Moodle), continue with empty sections
   const sections = sectionsResult.status === 'fulfilled' ? sectionsResult.value : [];
+
+  // If getCourse returned empty but sections loaded, course exists — use fallback name
+  const courseInfo = courseResult.value[0] ?? (sections.length > 0 ? {
+    id: moodleCourseId,
+    fullname: `Cours #${moodleCourseId}`,
+    shortname: `C${moodleCourseId}`,
+    categoryid: 1, summary: '', format: 'topics' as const,
+    startdate: 0, enddate: 0, visible: 1,
+  } : null);
+
+  if (!courseInfo) throw new Error(`Course ${moodleCourseId} not found in Moodle. Check the ID and token permissions.`);
 
   const nodes: ImportedNode[] = [];
   const edges: ImportedEdge[] = [];

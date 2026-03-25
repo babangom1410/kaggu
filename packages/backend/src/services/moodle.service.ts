@@ -203,6 +203,24 @@ export async function getCourse(
   enddate: number;
   visible: number;
 }>> {
+  // core_course_get_courses_by_field works with manager-level tokens (no admin required)
+  try {
+    const result = await moodleCall<{ courses: unknown[] }>(
+      config,
+      'core_course_get_courses_by_field',
+      { field: 'id', value: String(courseId) },
+    );
+    if (result.courses && result.courses.length > 0) {
+      return result.courses as Array<{
+        id: number; fullname: string; shortname: string;
+        categoryid: number; summary: string; format: string;
+        startdate: number; enddate: number; visible: number;
+      }>;
+    }
+  } catch {
+    // fall through to legacy API
+  }
+  // Fallback: core_course_get_courses (requires admin/manager)
   return moodleCall(config, 'core_course_get_courses', { options: { ids: [courseId] } });
 }
 
