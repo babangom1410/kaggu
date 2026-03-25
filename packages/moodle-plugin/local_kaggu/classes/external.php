@@ -708,4 +708,136 @@ class external extends \external_api {
             'itemid' => new \external_value(PARAM_INT, 'Draft area item id to use with create_module'),
         ]);
     }
+
+    // ─── find_course ─────────────────────────────────────────────────────────
+
+    public static function find_course_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'ref' => new \external_value(PARAM_RAW, 'Numeric course ID or shortname'),
+        ]);
+    }
+
+    public static function find_course(string $ref): array {
+        global $DB;
+
+        $params = self::validate_parameters(self::find_course_parameters(), ['ref' => $ref]);
+        $ref = trim($params['ref']);
+
+        $context = \context_system::instance();
+        self::validate_context($context);
+
+        $course = null;
+
+        if (ctype_digit($ref)) {
+            $course = $DB->get_record('course', ['id' => (int)$ref]);
+        }
+
+        if (!$course) {
+            $course = $DB->get_record('course', ['shortname' => $ref]);
+        }
+
+        if (!$course) {
+            $like = $DB->sql_like('fullname', ':q', false);
+            $course = $DB->get_record_select('course', $like, ['q' => '%' . $DB->sql_like_escape($ref) . '%'], '*', IGNORE_MULTIPLE);
+        }
+
+        if (!$course || $course->id == SITEID) {
+            return ['found' => false, 'id' => 0, 'fullname' => '', 'shortname' => '',
+                    'categoryid' => 0, 'summary' => '', 'format' => '', 'startdate' => 0,
+                    'enddate' => 0, 'visible' => 1];
+        }
+
+        return [
+            'found'      => true,
+            'id'         => (int) $course->id,
+            'fullname'   => (string) $course->fullname,
+            'shortname'  => (string) $course->shortname,
+            'categoryid' => (int) $course->category,
+            'summary'    => (string) $course->summary,
+            'format'     => (string) $course->format,
+            'startdate'  => (int) $course->startdate,
+            'enddate'    => (int) $course->enddate,
+            'visible'    => (int) $course->visible,
+        ];
+    }
+
+    public static function find_course_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'found'      => new \external_value(PARAM_BOOL, 'Whether the course was found'),
+            'id'         => new \external_value(PARAM_INT,  'Course ID'),
+            'fullname'   => new \external_value(PARAM_TEXT, 'Course full name'),
+            'shortname'  => new \external_value(PARAM_TEXT, 'Course short name'),
+            'categoryid' => new \external_value(PARAM_INT,  'Category ID'),
+            'summary'    => new \external_value(PARAM_RAW,  'Course summary'),
+            'format'     => new \external_value(PARAM_TEXT, 'Course format'),
+            'startdate'  => new \external_value(PARAM_INT,  'Start date timestamp'),
+            'enddate'    => new \external_value(PARAM_INT,  'End date timestamp'),
+            'visible'    => new \external_value(PARAM_INT,  'Visible flag'),
+        ]);
+    }
+
+    // ─── search_courses ───────────────────────────────────────────────────────
+
+    public static function search_courses_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'query'   => new \external_value(PARAM_TEXT, 'Search query'),
+            'perpage' => new \external_value(PARAM_INT,  'Max results', VALUE_DEFAULT, 20),
+        ]);
+    }
+
+    public static function search_courses(string $query, int $perpage = 20): array {
+        global $DB;
+
+        $params = self::validate_parameters(self::search_courses_parameters(), [
+            'query'   => $query,
+            'perpage' => $perpage,
+        ]);
+
+        $context = \context_system::instance();
+        self::validate_context($context);
+
+        $q = trim($params['query']);
+        if ($q === '') {
+            return ['courses' => []];
+        }
+
+        $likeFullname  = $DB->sql_like('fullname',  ':q1', false);
+        $likeShortname = $DB->sql_like('shortname', ':q2', false);
+        $likeQuery = '%' . $DB->sql_like_escape($q) . '%';
+
+        $sql = "SELECT id, fullname, shortname, category AS categoryid, summary, format, startdate, enddate, visible
+                  FROM {course}
+                 WHERE ($likeFullname OR $likeShortname)
+                   AND id <> :siteid
+                 ORDER BY fullname ASC";
+
+        $rows = $DB->get_records_sql($sql, [
+            'q1'     => $likeQuery,
+            'q2'     => $likeQuery,
+            'siteid' => SITEID,
+        ], 0, $params['perpage']);
+
+        $courses = [];
+        foreach ($rows as $row) {
+            $courses[] = [
+                'id'        => (int) $row->id,
+                'fullname'  => (string) $row->fullname,
+                'shortname' => (string) $row->shortname,
+            ];
+        }
+
+        return ['courses' => $courses];
+    }
+
+    public static function search_courses_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'courses' => new \external_multiple_structure(
+                new \external_single_structure([
+                    'id'        => new \external_value(PARAM_INT,  'Course ID'),
+                    'fullname'  => new \external_value(PARAM_TEXT, 'Full name'),
+                    'shortname' => new \external_value(PARAM_TEXT, 'Short name'),
+                ])
+            ),
+        ]);
+    }
 }

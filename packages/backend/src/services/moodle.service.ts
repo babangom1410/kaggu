@@ -206,68 +206,36 @@ export async function searchCourses(
   query: string,
 ): Promise<MoodleCourseInfo[]> {
   try {
-    const result = await moodleCall<{ courses: MoodleCourseInfo[]; total: number }>(
+    const result = await moodleCall<{ courses: Array<{ id: number; fullname: string; shortname: string }> }>(
       config,
-      'core_course_search_courses',
-      { criterianame: 'search', criteriavalue: query, page: 0, perpage: 20 },
+      'local_kaggu_search_courses',
+      { query, perpage: 20 },
     );
-    return result.courses ?? [];
+    return (result.courses ?? []) as MoodleCourseInfo[];
   } catch {
     return [];
   }
 }
 
-async function getCourseByField(
-  config: MoodleConnectionConfig,
-  field: 'id' | 'shortname',
-  value: string,
-): Promise<MoodleCourseInfo | null> {
-  try {
-    const result = await moodleCall<{ courses: MoodleCourseInfo[] }>(
-      config,
-      'core_course_get_courses_by_field',
-      { field, value },
-    );
-    return result.courses?.[0] ?? null;
-  } catch {
-    return null;
-  }
-}
-
 /**
  * Resolve a course reference (numeric ID or shortname) to a MoodleCourseInfo.
- * Tries core_course_get_courses_by_field first, falls back to core_course_get_courses.
+ * Uses local_kaggu_find_course which queries the DB directly.
  */
 export async function resolveCourse(
   config: MoodleConnectionConfig,
   ref: string,
 ): Promise<MoodleCourseInfo | null> {
-  const isNumeric = /^\d+$/.test(ref.trim());
-
-  if (isNumeric) {
-    const byId = await getCourseByField(config, 'id', ref.trim());
-    if (byId) return byId;
-    // Fallback: legacy admin API
-    try {
-      const courses = await moodleCall<MoodleCourseInfo[]>(
-        config, 'core_course_get_courses', { options: { ids: [Number(ref)] } },
-      );
-      return courses[0] ?? null;
-    } catch {
-      return null;
-    }
+  try {
+    const result = await moodleCall<MoodleCourseInfo & { found: boolean }>(
+      config,
+      'local_kaggu_find_course',
+      { ref },
+    );
+    if (!result.found) return null;
+    return result;
+  } catch {
+    return null;
   }
-
-  // Shortname exact lookup
-  const byShortname = await getCourseByField(config, 'shortname', ref.trim());
-  if (byShortname) return byShortname;
-
-  // Fallback: full-text search (case-insensitive, partial match)
-  const results = await searchCourses(config, ref.trim());
-  return results.find(
-    (c) => c.shortname.toLowerCase() === ref.trim().toLowerCase()
-      || c.fullname.toLowerCase().includes(ref.trim().toLowerCase()),
-  ) ?? null;
 }
 
 export async function getCourse(

@@ -53,6 +53,26 @@ $functions = [
         'ajax'          => false,
         'loginrequired' => true,
     ],
+
+    'local_kaggu_find_course' => [
+        'classname'     => 'local_kaggu\external',
+        'methodname'    => 'find_course',
+        'description'   => 'Find a course by numeric ID, shortname, or partial fullname.',
+        'type'          => 'read',
+        'capabilities'  => '',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
+
+    'local_kaggu_search_courses' => [
+        'classname'     => 'local_kaggu\external',
+        'methodname'    => 'search_courses',
+        'description'   => 'Search courses by name or shortname.',
+        'type'          => 'read',
+        'capabilities'  => '',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
 ];
 
 $services = [
