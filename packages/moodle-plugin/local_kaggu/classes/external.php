@@ -531,6 +531,26 @@ class external extends \external_api {
         }
         if (!empty($opts)) {
             self::apply_module_options($data, $cm->modname, $opts);
+        } else {
+            // No opts provided — preserve module-specific fields that
+            // update_moduleinfo / *_update_instance require but cannot
+            // reconstruct from get_moduleinfo_data alone in Moodle 5.x.
+            switch ($cm->modname) {
+                case 'page':
+                    // page_update_instance reads $data->page['text']/['format']
+                    $content = $data->content ?? '';
+                    $cfmt    = $data->contentformat ?? FORMAT_HTML;
+                    $data->page = ['text' => $content, 'format' => $cfmt, 'itemid' => 0];
+                    $data->displayoptions = serialize([
+                        'printintro'        => (int)($data->printintro        ?? 0),
+                        'printlastmodified' => (int)($data->printlastmodified ?? 1),
+                    ]);
+                    break;
+                case 'quiz':
+                    // quiz_update_instance maps quizpassword → password column
+                    $data->quizpassword = $data->password ?? '';
+                    break;
+            }
         }
 
         update_moduleinfo($cm, $data, $course);
