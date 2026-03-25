@@ -45,6 +45,7 @@ interface MindmapState {
   addNode: (node: MindmapNode, parentId?: string) => void;
   updateNode: (id: string, data: Partial<MindmapNodeData>) => void;
   deleteNode: (id: string) => void;
+  duplicateNode: (id: string) => void;
   setSelectedNode: (id: string | null) => void;
 
   // Edge actions
@@ -191,6 +192,30 @@ export const useMindmapStore = create<MindmapState>()(
                 null
               : get().selectedNodeId,
           });
+          markDirty();
+        },
+
+        duplicateNode: (id) => {
+          const { nodes, edges } = get();
+          const source = nodes.find((n) => n.id === id);
+          if (!source || source.type === 'course') return;
+          pushHistory();
+
+          const newId = generateNodeId();
+          const duplicate: MindmapNode = {
+            ...source,
+            id: newId,
+            position: { x: source.position.x + 40, y: source.position.y + 40 },
+            data: JSON.parse(JSON.stringify(source.data)),
+          };
+
+          // Find parent and connect duplicate to same parent
+          const parentEdge = edges.find((e) => e.target === id);
+          const newEdges = parentEdge
+            ? [...edges, { id: generateEdgeId(parentEdge.source, newId), source: parentEdge.source, target: newId }]
+            : edges;
+
+          set({ nodes: [...nodes, duplicate], edges: newEdges });
           markDirty();
         },
 

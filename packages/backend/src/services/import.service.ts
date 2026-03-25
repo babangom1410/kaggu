@@ -162,6 +162,10 @@ export async function importFromMoodle(
           data = { ...data, attempts: 0, grademethod: 'highest' };
         } else if (subtype === 'forum') {
           data = { ...data, type: 'general', maxattachments: 9 };
+        } else if (subtype === 'h5p') {
+          data = { ...data, enabletracking: true, grademethod: 1 };
+        } else if (subtype === 'glossary') {
+          data = { ...data, displayformat: 'dictionary', allowcomments: false };
         }
       } else {
         data = { ...data, subtype };
@@ -169,6 +173,8 @@ export async function importFromMoodle(
           data = { ...data, url: mod.url ?? '' };
         } else if (subtype === 'page') {
           data = { ...data, content: '' };
+        } else if (subtype === 'book') {
+          data = { ...data, numbering: 1 };
         }
       }
 

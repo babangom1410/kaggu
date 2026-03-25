@@ -340,6 +340,7 @@ export function moodleModToNodeType(modname: string): {
     page: 'page',
     resource: 'file',
     folder: 'file',
+    book: 'book',
   };
   const activities: Record<string, string> = {
     assign: 'assign',
@@ -348,7 +349,8 @@ export function moodleModToNodeType(modname: string): {
     choice: 'forum',
     scorm: 'assign',
     lesson: 'assign',
-    h5pactivity: 'assign',
+    h5pactivity: 'h5p',
+    glossary: 'glossary',
   };
   if (resources[modname]) return { type: 'resource', subtype: resources[modname] };
   if (activities[modname]) return { type: 'activity', subtype: activities[modname] };

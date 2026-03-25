@@ -255,6 +255,58 @@ function buildModuleOptions(node: BackendNode, fileItemIds?: Map<string, number>
   return null;
 }
 
+/**
+ * Detect circular restriction dependencies using DFS.
+ * Returns human-readable descriptions of each cycle found.
+ */
+function detectCircularRestrictions(nodes: BackendNode[]): string[] {
+  // Build adjacency: nodeId → [nodeIds it depends on via restrictions]
+  const deps = new Map<string, string[]>();
+  const nameMap = new Map<string, string>();
+  for (const node of nodes) {
+    nameMap.set(node.id, String(node.data.name || node.data.fullname || node.id));
+    const restrictions = Array.isArray(node.data.restrictions)
+      ? (node.data.restrictions as Array<Record<string, unknown>>)
+      : [];
+    const depIds = restrictions
+      .filter((r) => (r.type === 'completion' || r.type === 'grade') && r.nodeId)
+      .map((r) => String(r.nodeId));
+    deps.set(node.id, depIds);
+  }
+
+  const cycles: string[] = [];
+  const visited = new Set<string>();
+  const inStack = new Set<string>();
+  const stack: string[] = [];
+
+  const dfs = (nodeId: string) => {
+    if (inStack.has(nodeId)) {
+      // Found a cycle — extract it from the current stack
+      const cycleStart = stack.indexOf(nodeId);
+      const cycle = [...stack.slice(cycleStart), nodeId]
+        .map((id) => nameMap.get(id) || id)
+        .join(' → ');
+      cycles.push(cycle);
+      return;
+    }
+    if (visited.has(nodeId)) return;
+    visited.add(nodeId);
+    inStack.add(nodeId);
+    stack.push(nodeId);
+    for (const depId of deps.get(nodeId) ?? []) {
+      dfs(depId);
+    }
+    stack.pop();
+    inStack.delete(nodeId);
+  };
+
+  for (const nodeId of deps.keys()) {
+    dfs(nodeId);
+  }
+
+  return cycles;
+}
+
 export async function exportProject(
   userId: string,
   projectId: string,
@@ -288,6 +340,14 @@ export async function exportProject(
 
   const nodes = (project.nodes || []) as BackendNode[];
   const edges = (project.edges || []) as BackendEdge[];
+
+  // 2a. Detect circular restriction dependencies (A requires B requires A)
+  const circularErrors = detectCircularRestrictions(nodes);
+  if (circularErrors.length > 0) {
+    throw new Error(
+      `Restrictions circulaires détectées :\n${circularErrors.map((c) => `  • ${c}`).join('\n')}\nCorrigez ces dépendances avant d'exporter.`,
+    );
+  }
 
   // 2. Find the course node
   const courseNode = nodes.find((n) => n.type === 'course');

@@ -65,7 +65,7 @@ type MenuEntry = MenuItem | SeparatorItem;
 export function MindmapEditor() {
   useKeyboardShortcuts();
 
-  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, deleteNode, setSelectedNode } =
+  const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, deleteNode, duplicateNode, setSelectedNode } =
     useMindmapStore();
 
   // Virtual edges for restriction dependencies (dashed, amber, read-only)
@@ -160,6 +160,12 @@ export function MindmapEditor() {
 
     if (nodeType === 'section') {
       return [
+        {
+          label: 'Dupliquer',
+          icon: '📋',
+          color: 'text-slate-600',
+          onClick: () => { duplicateNode(nodeId); setContextMenu(null); },
+        },
         { type: 'separator', label: 'Ressources' },
         {
           label: 'Fichier',
@@ -243,6 +249,12 @@ export function MindmapEditor() {
 
     if (nodeType === 'resource' || nodeType === 'activity') {
       return [
+        {
+          label: 'Dupliquer',
+          icon: '📋',
+          color: 'text-slate-600',
+          onClick: () => { duplicateNode(nodeId); setContextMenu(null); },
+        },
         {
           label: 'Supprimer',
           icon: '🗑️',
