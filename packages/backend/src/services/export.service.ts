@@ -264,6 +264,10 @@ function buildModuleOptions(node: BackendNode, fileItemIds?: Map<string, number>
         moduletype: 'page',
         options: {
           content: String(data.content || ''),
+          intro: String(data.description || ''),
+          printintro: data.printintro ? 1 : 0,
+          printlastmodified: data.printlastmodified !== false ? 1 : 0,
+          displaydescription: data.displaydescription ? 1 : 0,
         },
       };
     }

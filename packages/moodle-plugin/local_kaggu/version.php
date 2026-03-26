@@ -9,7 +9,7 @@
 defined('MOODLE_INTERNAL') || die();
 
 $plugin->component    = 'local_kaggu';
-$plugin->version      = 2026032501;
+$plugin->version      = 2026032502;
 $plugin->requires     = 2020061500; // Moodle 3.9
 $plugin->maturity     = MATURITY_STABLE;
 $plugin->release      = '1.0.0';

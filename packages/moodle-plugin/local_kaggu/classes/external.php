@@ -392,16 +392,21 @@ class external extends \external_api {
 
             case 'page':
                 $content = $opts['content'] ?? '';
+                $intro = $opts['intro'] ?? '';
+                $printintro = isset($opts['printintro']) ? (int)$opts['printintro'] : 0;
+                $printlastmodified = isset($opts['printlastmodified']) ? (int)$opts['printlastmodified'] : 1;
+                $info->intro             = $intro;
+                $info->introformat       = FORMAT_HTML;
                 $info->content           = $content;
                 $info->contentformat     = FORMAT_HTML;
                 // Moodle 5.x: page_update_instance reads $data->page['text'] / ['format']
                 $info->page              = ['text' => $content, 'format' => FORMAT_HTML, 'itemid' => 0];
-                $info->printintro        = 0;
-                $info->printlastmodified = 1;
+                $info->printintro        = $printintro;
+                $info->printlastmodified = $printlastmodified;
                 $info->legacyfiles       = 0;
                 $info->revision          = 0;
                 $info->display           = 5;
-                $info->displayoptions    = serialize(['printintro' => 0, 'printlastmodified' => 1]);
+                $info->displayoptions    = serialize(['printintro' => $printintro, 'printlastmodified' => $printlastmodified]);
                 break;
 
             case 'book':
