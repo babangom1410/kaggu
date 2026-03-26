@@ -373,6 +373,39 @@ export async function uploadFileToDraft(
   return result.itemid;
 }
 
+// ─── Quiz content ─────────────────────────────────────────────────────────────
+
+export interface QuizAnswerInput {
+  text: string;
+  correct: 0 | 1;
+  feedback?: string;
+}
+
+export interface QuizQuestionInput {
+  type: 'multichoice' | 'truefalse' | 'shortanswer' | 'numerical';
+  text: string;
+  points?: number;
+  generalfeedback?: string;
+  // multichoice
+  single?: 0 | 1;
+  answers?: QuizAnswerInput[];
+  // truefalse
+  correct?: 0 | 1;
+  feedbacktrue?: string;
+  feedbackfalse?: string;
+  // numerical
+  answer?: number;
+  tolerance?: number;
+}
+
+export async function createQuizContent(
+  config: MoodleConnectionConfig,
+  cmid: number,
+  questions: QuizQuestionInput[],
+): Promise<{ created: number }> {
+  return moodleCall<{ created: number }>(config, 'local_kaggu_create_quiz_content', { cmid, questions });
+}
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 export function computeChecksum(data: unknown): string {

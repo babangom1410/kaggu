@@ -911,6 +911,317 @@ class external extends \external_api {
         ]);
     }
 
+    // ─── create_quiz_content ─────────────────────────────────────────────────
+
+    public static function create_quiz_content_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'cmid'      => new \external_value(PARAM_INT, 'Quiz course module ID'),
+            'questions' => new \external_multiple_structure(
+                new \external_single_structure([
+                    'type'            => new \external_value(PARAM_ALPHA, 'multichoice|truefalse|shortanswer|numerical'),
+                    'text'            => new \external_value(PARAM_RAW,   'Question text (HTML)'),
+                    'points'          => new \external_value(PARAM_FLOAT, 'Max mark',                        VALUE_DEFAULT, 1.0),
+                    'generalfeedback' => new \external_value(PARAM_RAW,   'General feedback HTML',           VALUE_DEFAULT, ''),
+                    'single'          => new \external_value(PARAM_INT,   '1=single correct (multichoice)', VALUE_DEFAULT, 1),
+                    'answers'         => new \external_multiple_structure(
+                        new \external_single_structure([
+                            'text'     => new \external_value(PARAM_RAW,  'Answer text'),
+                            'correct'  => new \external_value(PARAM_INT,  '1=correct'),
+                            'feedback' => new \external_value(PARAM_RAW,  'Answer feedback', VALUE_DEFAULT, ''),
+                        ]),
+                        'Answers (multichoice or shortanswer)',
+                        VALUE_DEFAULT, []
+                    ),
+                    'correct'       => new \external_value(PARAM_INT,   'Correct for truefalse (1=true)', VALUE_DEFAULT, 1),
+                    'feedbacktrue'  => new \external_value(PARAM_RAW,   'Feedback when true',             VALUE_DEFAULT, ''),
+                    'feedbackfalse' => new \external_value(PARAM_RAW,   'Feedback when false',            VALUE_DEFAULT, ''),
+                    'answer'        => new \external_value(PARAM_FLOAT, 'Numerical answer',               VALUE_DEFAULT, 0),
+                    'tolerance'     => new \external_value(PARAM_FLOAT, 'Numerical tolerance (±)',        VALUE_DEFAULT, 0),
+                ])
+            ),
+        ]);
+    }
+
+    public static function create_quiz_content(int $cmid, array $questions): array {
+        global $DB, $USER, $CFG;
+
+        require_once($CFG->dirroot . '/mod/quiz/lib.php');
+
+        $params = self::validate_parameters(self::create_quiz_content_parameters(), [
+            'cmid' => $cmid, 'questions' => $questions,
+        ]);
+
+        require_login();
+        $cm = get_coursemodule_from_id('quiz', $params['cmid'], 0, false, MUST_EXIST);
+        $context = \context_module::instance($cm->id);
+        self::validate_context($context);
+        require_capability('moodle/course:manageactivities', $context);
+
+        $quizid = $cm->instance;
+        $coursecontext = \context_course::instance($cm->course);
+
+        // ── Get or create a question category for this course context ──────────
+        $category = $DB->get_record('question_categories', [
+            'contextid' => $coursecontext->id,
+            'parent'    => 0,
+        ]);
+        if (!$category) {
+            $cat = new \stdClass();
+            $cat->name        = get_string('defaultfor', 'question', format_string($cm->name));
+            $cat->contextid   = $coursecontext->id;
+            $cat->info        = '';
+            $cat->infoformat  = FORMAT_HTML;
+            $cat->parent      = 0;
+            $cat->sortorder   = 999;
+            $cat->stamp       = make_unique_id_code();
+            $cat->id = $DB->insert_record('question_categories', $cat);
+            $category = $cat;
+        }
+
+        // ── Delete existing slots + linked questions for this quiz ─────────────
+        $existingSlots = $DB->get_records('quiz_slots', ['quizid' => $quizid]);
+        foreach ($existingSlots as $slot) {
+            $refs = $DB->get_records('question_references', [
+                'component'    => 'mod_quiz',
+                'questionarea' => 'slot',
+                'itemid'       => $slot->id,
+            ]);
+            foreach ($refs as $ref) {
+                $versions = $DB->get_records('question_versions', ['questionbankentryid' => $ref->questionbankentryid]);
+                foreach ($versions as $ver) {
+                    $q = $DB->get_record('question', ['id' => $ver->questionid]);
+                    if ($q) {
+                        self::delete_question_type_data($DB, $q->id, $q->qtype);
+                        $DB->delete_records('question', ['id' => $q->id]);
+                    }
+                    $DB->delete_records('question_versions', ['id' => $ver->id]);
+                }
+                $DB->delete_records('question_bank_entries', ['id' => $ref->questionbankentryid]);
+                $DB->delete_records('question_references', ['id' => $ref->id]);
+            }
+        }
+        $DB->delete_records('quiz_slots', ['quizid' => $quizid]);
+
+        // ── Create new questions ───────────────────────────────────────────────
+        $now       = time();
+        $slotNum   = 1;
+        $sumgrades = 0.0;
+
+        foreach ($params['questions'] as $qdata) {
+            $qtype  = $qdata['type'];
+            $points = (float)($qdata['points'] ?? 1.0);
+            $sumgrades += $points;
+
+            // 1. question record
+            $q = new \stdClass();
+            $q->category            = $category->id;
+            $q->parent              = 0;
+            $q->name                = \core_text::substr(strip_tags($qdata['text']), 0, 250) ?: "Question $slotNum";
+            $q->questiontext        = $qdata['text'];
+            $q->questiontextformat  = FORMAT_HTML;
+            $q->generalfeedback     = $qdata['generalfeedback'] ?? '';
+            $q->generalfeedbackformat = FORMAT_HTML;
+            $q->defaultmark         = $points;
+            $q->penalty             = 0.3333333;
+            $q->qtype               = $qtype;
+            $q->length              = 1;
+            $q->stamp               = make_unique_id_code();
+            $q->timecreated         = $now;
+            $q->timemodified        = $now;
+            $q->createdby           = $USER->id;
+            $q->modifiedby          = $USER->id;
+            $q->id = $DB->insert_record('question', $q);
+
+            // 2. question_bank_entries
+            $entry = new \stdClass();
+            $entry->questioncategoryid = $category->id;
+            $entry->idnumber           = null;
+            $entry->ownerid            = $USER->id;
+            $entry->hidden             = 0;
+            $entry->id = $DB->insert_record('question_bank_entries', $entry);
+
+            // 3. question_versions
+            $ver = new \stdClass();
+            $ver->questionbankentryid = $entry->id;
+            $ver->version             = 1;
+            $ver->questionid          = $q->id;
+            $ver->status              = 'ready';
+            $DB->insert_record('question_versions', $ver);
+
+            // 4. type-specific data
+            self::create_question_type_data($DB, $q->id, $qtype, $qdata);
+
+            // 5. quiz_slots
+            $slot = new \stdClass();
+            $slot->quizid          = $quizid;
+            $slot->slot            = $slotNum;
+            $slot->page            = $slotNum;
+            $slot->requireprevious = 0;
+            $slot->maxmark         = $points;
+            $slot->id = $DB->insert_record('quiz_slots', $slot);
+
+            // 6. question_references (Moodle 4.0+ linking mechanism)
+            $ref = new \stdClass();
+            $ref->usingcontextid    = $context->id;
+            $ref->component         = 'mod_quiz';
+            $ref->questionarea      = 'slot';
+            $ref->itemid            = $slot->id;
+            $ref->questionbankentryid = $entry->id;
+            $ref->version           = null; // null = always latest
+            $DB->insert_record('question_references', $ref);
+
+            $slotNum++;
+        }
+
+        // ── Update quiz sumgrades and grade ────────────────────────────────────
+        $DB->set_field('quiz', 'sumgrades', $sumgrades, ['id' => $quizid]);
+        $DB->set_field('quiz', 'grade',     $sumgrades > 0 ? $sumgrades : 10, ['id' => $quizid]);
+
+        try {
+            $quizrecord = $DB->get_record('quiz', ['id' => $quizid]);
+            quiz_update_grades($quizrecord);
+        } catch (\Throwable $e) {
+            // Non-fatal: grade update may fail if no attempts exist yet
+        }
+
+        rebuild_course_cache($cm->course, true);
+
+        return ['created' => count($params['questions'])];
+    }
+
+    private static function create_question_type_data(\moodle_database $DB, int $qid, string $qtype, array $qdata): void {
+        switch ($qtype) {
+            case 'multichoice':
+                $single = (int)($qdata['single'] ?? 1);
+                $opts = new \stdClass();
+                $opts->questionid                        = $qid;
+                $opts->layout                            = 0;
+                $opts->single                            = $single;
+                $opts->shuffleanswers                    = 1;
+                $opts->correctfeedback                   = '';
+                $opts->correctfeedbackformat             = FORMAT_HTML;
+                $opts->partiallycorrectfeedback          = '';
+                $opts->partiallycorrectfeedbackformat    = FORMAT_HTML;
+                $opts->incorrectfeedback                 = '';
+                $opts->incorrectfeedbackformat           = FORMAT_HTML;
+                $opts->answernumbering                   = 'abc';
+                $opts->showstandardinstruction           = 0;
+                $DB->insert_record('qtype_multichoice_options', $opts);
+
+                $answers = $qdata['answers'] ?? [];
+                $nCorrect = max(1, count(array_filter($answers, fn($a) => (int)($a['correct'] ?? 0) === 1)));
+                foreach ($answers as $ans) {
+                    $a = new \stdClass();
+                    $a->question       = $qid;
+                    $a->answer         = $ans['text'];
+                    $a->answerformat   = FORMAT_HTML;
+                    $a->feedback       = $ans['feedback'] ?? '';
+                    $a->feedbackformat = FORMAT_HTML;
+                    $a->fraction       = (int)($ans['correct'] ?? 0) === 1
+                        ? ($single ? 1.0 : round(1.0 / $nCorrect, 7))
+                        : 0.0;
+                    $DB->insert_record('question_answers', $a);
+                }
+                break;
+
+            case 'truefalse':
+                $trueA = new \stdClass();
+                $trueA->question       = $qid;
+                $trueA->answer         = 'True';
+                $trueA->answerformat   = FORMAT_MOODLE;
+                $trueA->fraction       = (int)($qdata['correct'] ?? 1) === 1 ? 1.0 : 0.0;
+                $trueA->feedback       = $qdata['feedbacktrue'] ?? '';
+                $trueA->feedbackformat = FORMAT_HTML;
+                $trueId = $DB->insert_record('question_answers', $trueA);
+
+                $falseA = new \stdClass();
+                $falseA->question       = $qid;
+                $falseA->answer         = 'False';
+                $falseA->answerformat   = FORMAT_MOODLE;
+                $falseA->fraction       = (int)($qdata['correct'] ?? 1) === 1 ? 0.0 : 1.0;
+                $falseA->feedback       = $qdata['feedbackfalse'] ?? '';
+                $falseA->feedbackformat = FORMAT_HTML;
+                $falseId = $DB->insert_record('question_answers', $falseA);
+
+                $tf = new \stdClass();
+                $tf->question    = $qid;
+                $tf->trueanswer  = $trueId;
+                $tf->falseanswer = $falseId;
+                $DB->insert_record('question_truefalse', $tf);
+                break;
+
+            case 'shortanswer':
+                $shopts = new \stdClass();
+                $shopts->questionid = $qid;
+                $shopts->usecase    = 0;
+                $DB->insert_record('qtype_shortanswer_options', $shopts);
+
+                $first = true;
+                foreach ($qdata['answers'] ?? [] as $ans) {
+                    $a = new \stdClass();
+                    $a->question       = $qid;
+                    $a->answer         = $ans['text'];
+                    $a->answerformat   = FORMAT_MOODLE;
+                    $a->fraction       = $first ? 1.0 : 0.5;
+                    $a->feedback       = $ans['feedback'] ?? '';
+                    $a->feedbackformat = FORMAT_HTML;
+                    $DB->insert_record('question_answers', $a);
+                    $first = false;
+                }
+                break;
+
+            case 'numerical':
+                $a = new \stdClass();
+                $a->question       = $qid;
+                $a->answer         = (string)($qdata['answer'] ?? 0);
+                $a->answerformat   = FORMAT_MOODLE;
+                $a->fraction       = 1.0;
+                $a->feedback       = '';
+                $a->feedbackformat = FORMAT_HTML;
+                $ansId = $DB->insert_record('question_answers', $a);
+
+                $num = new \stdClass();
+                $num->question  = $qid;
+                $num->answer    = $ansId;
+                $num->tolerance = (float)($qdata['tolerance'] ?? 0);
+                $DB->insert_record('question_numerical', $num);
+
+                $numopts = new \stdClass();
+                $numopts->question        = $qid;
+                $numopts->showunits       = 0;
+                $numopts->unitsleft       = 0;
+                $numopts->unitgradingtype = 0;
+                $numopts->unitpenalty     = 0.1;
+                $DB->insert_record('question_numerical_options', $numopts);
+                break;
+        }
+    }
+
+    private static function delete_question_type_data(\moodle_database $DB, int $qid, string $qtype): void {
+        $DB->delete_records('question_answers', ['question' => $qid]);
+        switch ($qtype) {
+            case 'multichoice':
+                $DB->delete_records('qtype_multichoice_options', ['questionid' => $qid]);
+                break;
+            case 'truefalse':
+                $DB->delete_records('question_truefalse', ['question' => $qid]);
+                break;
+            case 'shortanswer':
+                $DB->delete_records('qtype_shortanswer_options', ['questionid' => $qid]);
+                break;
+            case 'numerical':
+                $DB->delete_records('question_numerical',         ['question' => $qid]);
+                $DB->delete_records('question_numerical_options', ['question' => $qid]);
+                break;
+        }
+    }
+
+    public static function create_quiz_content_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'created' => new \external_value(PARAM_INT, 'Number of questions created'),
+        ]);
+    }
+
     // ─── search_courses ───────────────────────────────────────────────────────
 
     public static function search_courses_returns(): \external_single_structure {

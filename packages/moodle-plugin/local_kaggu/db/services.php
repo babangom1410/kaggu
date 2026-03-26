@@ -64,6 +64,16 @@ $functions = [
         'loginrequired' => true,
     ],
 
+    'local_kaggu_create_quiz_content' => [
+        'classname'     => 'local_kaggu\\external',
+        'methodname'    => 'create_quiz_content',
+        'description'   => 'Replace all questions of a quiz (identified by cmid).',
+        'type'          => 'write',
+        'capabilities'  => 'moodle/course:manageactivities',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
+
     'local_kaggu_update_book_chapters' => [
         'classname'     => 'local_kaggu\external',
         'methodname'    => 'update_book_chapters',

@@ -8,6 +8,8 @@ import {
   createModule,
   updateModule,
   updateBookChapters,
+  createQuizContent,
+  type QuizQuestionInput,
   computeChecksum,
   dateToTimestamp,
   uploadFileToDraft,
@@ -172,6 +174,54 @@ async function syncBookChapters(
   await updateBookChapters(config, cmid, chapters);
 }
 
+async function syncQuizQuestions(
+  config: MoodleConnectionConfig,
+  cmid: number,
+  questionsData: unknown,
+): Promise<void> {
+  const raw = Array.isArray(questionsData) ? questionsData : [];
+  const GRADE_MAP: Record<string, number> = { highest: 1, average: 2, first: 3, last: 4 };
+
+  const questions: QuizQuestionInput[] = (raw as Array<Record<string, unknown>>).map((q) => {
+    const type = String(q.type || 'multichoice') as QuizQuestionInput['type'];
+    const base: QuizQuestionInput = {
+      type,
+      text: String(q.text || ''),
+      points: Number(q.points ?? 1),
+      generalfeedback: String(q.generalfeedback || ''),
+    };
+
+    if (type === 'multichoice') {
+      const answers = (Array.isArray(q.answers) ? q.answers : []) as Array<Record<string, unknown>>;
+      base.single = q.single === false || q.single === 0 ? 0 : 1;
+      base.answers = answers.map((a) => ({
+        text: String(a.text || ''),
+        correct: a.correct ? 1 : 0 as 0 | 1,
+        feedback: String(a.feedback || ''),
+      }));
+    } else if (type === 'truefalse') {
+      base.correct = q.correct ? 1 : 0 as 0 | 1;
+      base.feedbacktrue  = String(q.feedbackTrue  || q.feedbacktrue  || '');
+      base.feedbackfalse = String(q.feedbackFalse || q.feedbackfalse || '');
+    } else if (type === 'shortanswer') {
+      const answers = (Array.isArray(q.answers) ? q.answers : []) as Array<Record<string, unknown>>;
+      base.answers = answers.map((a) => ({
+        text: String(a.text || ''),
+        correct: 1 as 0 | 1,
+        feedback: String(a.feedback || ''),
+      }));
+    } else if (type === 'numerical') {
+      base.answer    = Number(q.answer    ?? 0);
+      base.tolerance = Number(q.tolerance ?? 0);
+    }
+
+    return base;
+  });
+
+  await createQuizContent(config, cmid, questions);
+  void GRADE_MAP; // suppress unused warning
+}
+
 function buildModuleOptions(node: BackendNode, fileItemIds?: Map<string, number>): {
   moduletype: string;
   options: Record<string, unknown>;
@@ -192,14 +242,16 @@ function buildModuleOptions(node: BackendNode, fileItemIds?: Map<string, number>
       };
     }
     if (subtype === 'quiz') {
+      const GRADE_MAP: Record<string, number> = { highest: 1, average: 2, first: 3, last: 4 };
       return {
         moduletype: 'quiz',
         options: {
-          timeopen: dateToTimestamp(data.timeopen as string | undefined),
-          timeclose: dateToTimestamp(data.timeclose as string | undefined),
-          timelimit: Number(data.timelimit) || 0,
-          attempts: Number(data.attempts) || 0,
-          grademethod: Number(data.grademethod) || 1,
+          timeopen:       dateToTimestamp(data.timeopen as string | undefined),
+          timeclose:      dateToTimestamp(data.timeclose as string | undefined),
+          timelimit:      Number(data.timelimit) || 0,
+          attempts:       Number(data.attempts) || 0,
+          grademethod:    GRADE_MAP[String(data.grademethod)] ?? 1,
+          shuffleanswers: data.shuffleanswers ? 1 : 0,
         },
       };
     }
@@ -571,6 +623,9 @@ export async function exportProject(
             if (moduleOpts.moduletype === 'book') {
               await syncBookChapters(config, existingModule.moodle_id, moduleNode.data.chapters);
             }
+            if (moduleOpts.moduletype === 'quiz') {
+              await syncQuizQuestions(config, existingModule.moodle_id, moduleNode.data.questions);
+            }
             report.updated++;
           } else {
             // Checksum matches (content unchanged) — still sync completion and
@@ -585,6 +640,9 @@ export async function exportProject(
             });
             if (moduleOpts.moduletype === 'book') {
               await syncBookChapters(config, existingModule.moodle_id, moduleNode.data.chapters);
+            }
+            if (moduleOpts.moduletype === 'quiz') {
+              await syncQuizQuestions(config, existingModule.moodle_id, moduleNode.data.questions);
             }
             report.skipped++;
           }
@@ -603,6 +661,9 @@ export async function exportProject(
           });
           if (moduleOpts.moduletype === 'book') {
             await syncBookChapters(config, result.cmid, moduleNode.data.chapters);
+          }
+          if (moduleOpts.moduletype === 'quiz') {
+            await syncQuizQuestions(config, result.cmid, moduleNode.data.questions);
           }
           report.created++;
           await upsertMapping(moduleNode.id, 'module', result.cmid, moduleChecksum);
