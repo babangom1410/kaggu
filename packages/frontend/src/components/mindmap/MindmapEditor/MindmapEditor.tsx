@@ -68,6 +68,29 @@ export function MindmapEditor() {
   const { nodes, edges, onNodesChange, onEdgesChange, onConnect, addNode, deleteNode, duplicateNode, setSelectedNode } =
     useMindmapStore();
 
+  // Compute hidden node IDs based on collapsed state (recursive)
+  const hiddenNodeIds = useMemo(() => {
+    const hidden = new Set<string>();
+    function hideChildren(nodeId: string) {
+      edges.forEach((e) => {
+        if (e.source === nodeId && !hidden.has(e.target)) {
+          hidden.add(e.target);
+          hideChildren(e.target);
+        }
+      });
+    }
+    nodes.forEach((node) => {
+      const d = node.data as unknown as Record<string, unknown>;
+      if (d.collapsed && !hidden.has(node.id)) hideChildren(node.id);
+    });
+    return hidden;
+  }, [nodes, edges]);
+
+  const displayNodes = useMemo(
+    () => nodes.map((n) => hiddenNodeIds.has(n.id) ? { ...n, hidden: true } : n),
+    [nodes, hiddenNodeIds],
+  );
+
   // Virtual edges for restriction dependencies (dashed, amber, read-only)
   const restrictionEdges = useMemo(() => {
     const result: Edge[] = [];
@@ -291,8 +314,10 @@ export function MindmapEditor() {
   return (
     <div ref={reactFlowRef} className="relative w-full h-full bg-slate-100">
       <ReactFlow
-        nodes={nodes}
-        edges={[...edges, ...restrictionEdges]}
+        nodes={displayNodes}
+        edges={[...edges, ...restrictionEdges].map((e) =>
+          hiddenNodeIds.has(e.target) || hiddenNodeIds.has(e.source) ? { ...e, hidden: true } : e
+        )}
         onNodesChange={onNodesChange}
         onEdgesChange={(changes) => {
           // Ignore changes on virtual restriction edges

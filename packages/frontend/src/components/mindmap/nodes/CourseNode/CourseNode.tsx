@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { CourseNodeData } from '@/types/mindmap.types';
+import { useMindmapStore } from '@/stores/mindmap-store';
 
 const FORMAT_LABELS: Record<string, string> = {
   topics: 'Par thèmes',
@@ -8,7 +9,16 @@ const FORMAT_LABELS: Record<string, string> = {
   social: 'Social',
 };
 
-function CourseNodeComponent({ data, selected }: NodeProps<CourseNodeData>) {
+function CourseNodeComponent({ id, data, selected }: NodeProps<CourseNodeData>) {
+  const { updateNode, edges } = useMindmapStore();
+  const childCount = edges.filter((e) => e.source === id).length;
+  const collapsed = data.collapsed ?? false;
+
+  const toggle = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    updateNode(id, { collapsed: !collapsed });
+  };
+
   return (
     <div
       className={`
@@ -36,6 +46,30 @@ function CourseNodeComponent({ data, selected }: NodeProps<CourseNodeData>) {
             </div>
             <div className="text-xs text-slate-400 mt-0.5">{data.shortname}</div>
           </div>
+
+          {/* Collapse toggle */}
+          {childCount > 0 && (
+            <div className="relative flex-shrink-0 mt-0.5">
+              <button
+                onClick={toggle}
+                className="w-7 h-7 rounded-lg flex items-center justify-center
+                           text-slate-400 hover:text-blue-600 hover:bg-blue-50 transition-colors"
+                title={collapsed ? 'Déplier tout' : 'Réduire tout'}
+              >
+                <svg
+                  width="13" height="13" viewBox="0 0 12 12" fill="none"
+                  className={`transition-transform duration-200 ${collapsed ? '-rotate-90' : ''}`}
+                >
+                  <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </button>
+              {collapsed && (
+                <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-blue-500 text-white text-[9px] font-bold flex items-center justify-center leading-none pointer-events-none">
+                  {childCount}
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer chips */}

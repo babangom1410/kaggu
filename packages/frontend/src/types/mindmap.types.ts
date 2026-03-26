@@ -13,6 +13,7 @@ export interface CourseNodeData {
   enddate?: string;
   visible: boolean;
   category: number;
+  collapsed?: boolean;
 }
 
 // --- Section node ---
@@ -22,6 +23,7 @@ export interface SectionNodeData {
   summary?: string;
   visible: boolean;
   position?: number;
+  collapsed?: boolean;
 }
 
 // --- Resource nodes ---
