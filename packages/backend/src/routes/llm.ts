@@ -5,6 +5,7 @@ import {
   generateNodeContent,
   generateCourseStructure,
   analyzeMindmap,
+  generateHtmlContent,
 } from '../services/llm.service';
 
 const router = Router();
@@ -59,6 +60,23 @@ router.post('/analyze', async (req, res) => {
   }
 
   await analyzeMindmap(parsed.data, res);
+});
+
+// POST /api/v1/llm/generate-html — generate clean HTML for a Page resource (SSE)
+router.post('/generate-html', async (req, res) => {
+  const schema = z.object({
+    nodeName:        z.string().min(1),
+    prompt:          z.string().min(1).max(2000),
+    existingContent: z.string().max(10000).optional(),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  await generateHtmlContent(parsed.data, res);
 });
 
 export default router;

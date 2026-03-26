@@ -164,6 +164,60 @@ Retourne UNIQUEMENT le JSON, sans texte avant ni après.`;
   }
 }
 
+// ─── Generate HTML page content ──────────────────────────────────────────────
+
+export interface GenerateHtmlParams {
+  nodeName: string;
+  prompt: string;
+  existingContent?: string;
+}
+
+export async function generateHtmlContent(
+  params: GenerateHtmlParams,
+  res: Response,
+): Promise<void> {
+  const client = getClient();
+
+  const systemPrompt = `${SYSTEM_BASE}
+
+Tu génères du contenu HTML propre pour une ressource Page Moodle.
+Règles strictes :
+- Utilise uniquement des balises HTML sémantiques : h2, h3, p, ul, ol, li, strong, em, a, hr, table, td, th
+- N'utilise PAS de balises html, head, body, script ou style
+- N'utilise PAS de classes CSS ni d'attributs style inline
+- Le contenu doit être directement utilisable dans TinyMCE Moodle
+- Commence directement par le contenu HTML, sans préambule ni explication
+- Nom de la ressource : "${params.nodeName}"
+${params.existingContent ? `\nContenu existant (contexte ou à améliorer) :\n${params.existingContent}` : ''}`;
+
+  initSSE(res);
+
+  try {
+    const stream = client.messages.stream({
+      model: MODEL,
+      max_tokens: MAX_TOKENS,
+      system: systemPrompt,
+      messages: [{ role: 'user', content: params.prompt }],
+    });
+
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        sendSSE(res, 'delta', { text: event.delta.text });
+      }
+    }
+
+    const final = await stream.finalMessage();
+    sendSSE(res, 'done', {
+      input_tokens:  final.usage.input_tokens,
+      output_tokens: final.usage.output_tokens,
+    });
+  } catch (err) {
+    sendSSE(res, 'error', { message: (err as Error).message });
+  } finally {
+    res.end();
+  }
+}
+
 // ─── Analyze mindmap coherence ────────────────────────────────────────────────
 
 export interface AnalyzeParams {
