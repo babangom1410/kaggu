@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { useMindmapStore } from '@/stores/mindmap-store';
 import { AiAssistant } from '@/components/mindmap/AiAssistant';
 import { PageEditorModal } from '@/components/mindmap/PageEditorModal';
-import type { Restriction, MindmapNode } from '@/types/mindmap.types';
+import { supabase } from '@/lib/supabase';
+import type { Restriction, MindmapNode, QuizQuestion, QuizQuestionType } from '@/types/mindmap.types';
+
+const API_BASE = import.meta.env.VITE_API_URL
+  ? `${import.meta.env.VITE_API_URL}/api`
+  : '/api';
 
 const TYPE_META: Record<string, { label: string; icon: string; color: string; bg: string }> = {
   course: { label: 'Cours', icon: '🎓', color: 'text-blue-400', bg: 'bg-blue-500/10' },
@@ -303,11 +308,455 @@ interface PropertiesPanelProps {
   nodeId: string;
 }
 
+// ─── Quiz AI Panel ────────────────────────────────────────────────────────────
+
+interface QuizAiPanelProps {
+  quizName: string;
+  nodes: MindmapNode[];
+  currentNodeId: string;
+  onInsert: (questions: QuizQuestion[]) => void;
+  onClose: () => void;
+}
+
+function QuizAiPanel({ quizName, nodes, currentNodeId, onInsert, onClose }: QuizAiPanelProps) {
+  const [prompt, setPrompt] = useState('');
+  const [count, setCount] = useState(5);
+  const [types, setTypes] = useState<QuizQuestionType[]>(['multichoice']);
+  const [selectedSources, setSelectedSources] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState<QuizQuestion[] | null>(null);
+  const [error, setError] = useState('');
+
+  const ALL_TYPES: { value: QuizQuestionType; label: string }[] = [
+    { value: 'multichoice',  label: 'QCM' },
+    { value: 'truefalse',    label: 'Vrai/Faux' },
+    { value: 'shortanswer',  label: 'Réponse courte' },
+    { value: 'numerical',    label: 'Numérique' },
+  ];
+
+  const contentSources = nodes.filter((n) => {
+    if (n.id === currentNodeId) return false;
+    const d = n.data as unknown as Record<string, unknown>;
+    if (n.type === 'resource') {
+      const sub = d.subtype as string;
+      return sub === 'page' || sub === 'book';
+    }
+    if (n.type === 'section') return Boolean(d.summary);
+    return false;
+  });
+
+  const extractContent = (n: MindmapNode): string => {
+    const d = n.data as unknown as Record<string, unknown>;
+    if (n.type === 'section') return String(d.summary ?? '');
+    if (n.type === 'resource') {
+      if (d.subtype === 'page') return String(d.content ?? '');
+      if (d.subtype === 'book') {
+        const chs = (d.chapters ?? []) as Array<{ title: string; content: string }>;
+        return chs.map((c) => `## ${c.title}\n${c.content}`).join('\n\n');
+      }
+    }
+    return '';
+  };
+
+  const nodeLabel = (n: MindmapNode): string => {
+    const d = n.data as unknown as Record<string, unknown>;
+    return String(d.name ?? d.fullname ?? n.id);
+  };
+
+  const toggleType = (t: QuizQuestionType) => {
+    setTypes((prev) =>
+      prev.includes(t) ? (prev.length > 1 ? prev.filter((x) => x !== t) : prev) : [...prev, t],
+    );
+  };
+
+  const toggleSource = (id: string) => {
+    setSelectedSources((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const generate = async () => {
+    if (!prompt.trim()) return;
+    setLoading(true);
+    setError('');
+    setPreview(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? '';
+
+      const courseContent = contentSources
+        .filter((n) => selectedSources.has(n.id))
+        .map((n) => ({ nodeId: n.id, label: nodeLabel(n), content: extractContent(n) }));
+
+      const res = await fetch(`${API_BASE}/v1/llm/generate-quiz`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ quizName, prompt, questionCount: count, questionTypes: types, courseContent }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error((err as { error?: string }).error ?? `HTTP ${res.status}`);
+      }
+
+      const body = await res.json() as { data: QuizQuestion[] };
+      setPreview(body.data ?? []);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const QUESTION_TYPE_LABELS: Record<string, string> = {
+    multichoice: 'QCM', truefalse: 'V/F', shortanswer: 'Courte', numerical: 'Num.',
+  };
+
+  return (
+    <div className="absolute inset-0 z-20 flex flex-col bg-slate-900 overflow-y-auto">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-slate-700/50 sticky top-0 bg-slate-900">
+        <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
+          <span>✨</span> Générer des questions par IA
+        </div>
+        <button onClick={onClose} className="text-slate-500 hover:text-slate-300 transition-colors text-lg leading-none">✕</button>
+      </div>
+
+      <div className="flex-1 px-5 py-4 space-y-4">
+        {/* Prompt */}
+        <div>
+          <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Consigne</label>
+          <textarea
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            placeholder="ex. Génère des questions sur les concepts clés, niveau L2…"
+            rows={3}
+            className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                       border border-slate-700 focus:border-indigo-500 focus:outline-none
+                       placeholder:text-slate-600 resize-none"
+          />
+        </div>
+
+        {/* Count + Types */}
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Nb de questions</label>
+            <input
+              type="number" min={1} max={50} value={count}
+              onChange={(e) => setCount(Math.max(1, Math.min(50, Number(e.target.value))))}
+              className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                         border border-slate-700 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Types</label>
+            <div className="flex flex-wrap gap-1">
+              {ALL_TYPES.map(({ value, label }) => (
+                <button
+                  key={value}
+                  onClick={() => toggleType(value)}
+                  className={`px-2 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                    types.includes(value)
+                      ? 'bg-indigo-500 text-white'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-slate-200'
+                  }`}
+                >{label}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Content sources */}
+        {contentSources.length > 0 && (
+          <div>
+            <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">
+              Contenus sources {selectedSources.size > 0 ? `(${selectedSources.size} sélectionné${selectedSources.size > 1 ? 's' : ''})` : ''}
+            </label>
+            <div className="space-y-1 max-h-32 overflow-y-auto pr-1">
+              {contentSources.map((n) => (
+                <button
+                  key={n.id}
+                  onClick={() => toggleSource(n.id)}
+                  className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-left transition-colors ${
+                    selectedSources.has(n.id)
+                      ? 'bg-indigo-500/20 border border-indigo-500/40 text-indigo-300'
+                      : 'bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span>{selectedSources.has(n.id) ? '☑' : '☐'}</span>
+                  <span className="truncate">{nodeLabel(n)}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Error */}
+        {error && (
+          <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</div>
+        )}
+
+        {/* Preview */}
+        {preview && preview.length > 0 && (
+          <div>
+            <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+              Aperçu — {preview.length} question{preview.length > 1 ? 's' : ''} générée{preview.length > 1 ? 's' : ''}
+            </div>
+            <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+              {preview.map((q, i) => (
+                <div key={q.id ?? i} className="bg-slate-800 rounded-lg px-3 py-2 space-y-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] font-semibold bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">
+                      {QUESTION_TYPE_LABELS[q.type] ?? q.type}
+                    </span>
+                    <span className="text-[10px] text-slate-500">{q.points} pt{q.points > 1 ? 's' : ''}</span>
+                  </div>
+                  <p className="text-xs text-slate-300 line-clamp-2"
+                    dangerouslySetInnerHTML={{ __html: q.text }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Generate / Insert buttons */}
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={generate}
+            disabled={loading || !prompt.trim()}
+            className="flex-1 py-2 rounded-lg text-sm font-semibold bg-indigo-600 hover:bg-indigo-500
+                       text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {loading ? 'Génération…' : '✨ Générer'}
+          </button>
+          {preview && preview.length > 0 && (
+            <button
+              onClick={() => { onInsert(preview); onClose(); }}
+              className="flex-1 py-2 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-500
+                         text-white transition-colors"
+            >
+              Insérer ({preview.length})
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Question Editor (inline card) ───────────────────────────────────────────
+
+interface QuestionCardProps {
+  question: QuizQuestion;
+  index: number;
+  total: number;
+  onChange: (q: QuizQuestion) => void;
+  onDelete: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}
+
+function QuestionCard({ question, index, total, onChange, onDelete, onMoveUp, onMoveDown }: QuestionCardProps) {
+  const [open, setOpen] = useState(false);
+  const genId = () => `a-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+  const TYPE_LABELS: Record<string, string> = {
+    multichoice: 'QCM', truefalse: 'Vrai/Faux', shortanswer: 'Réponse courte', numerical: 'Numérique',
+  };
+
+  const inputCls = 'w-full bg-slate-700 text-slate-200 text-xs rounded px-2 py-1.5 border border-slate-600 focus:border-indigo-500 focus:outline-none placeholder:text-slate-500';
+
+  return (
+    <div className="bg-slate-800 rounded-lg border border-slate-700">
+      {/* Card header */}
+      <div className="flex items-center gap-1.5 px-2.5 py-2">
+        <div className="flex flex-col gap-px flex-shrink-0">
+          <button onClick={onMoveUp} disabled={index === 0}
+            className="text-slate-600 hover:text-slate-300 disabled:opacity-20 text-[9px] leading-none">▲</button>
+          <button onClick={onMoveDown} disabled={index === total - 1}
+            className="text-slate-600 hover:text-slate-300 disabled:opacity-20 text-[9px] leading-none">▼</button>
+        </div>
+        <span className="text-[10px] font-semibold bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded flex-shrink-0">
+          {TYPE_LABELS[question.type] ?? question.type}
+        </span>
+        <button onClick={() => setOpen((v) => !v)}
+          className="flex-1 min-w-0 text-left">
+          <span className="text-xs text-slate-300 line-clamp-1 block"
+            dangerouslySetInnerHTML={{ __html: question.text || <span className="text-slate-600">Énoncé…</span> as unknown as string }} />
+        </button>
+        <span className="text-[10px] text-slate-500 flex-shrink-0">{question.points}pt</span>
+        <button onClick={() => setOpen((v) => !v)}
+          className={`text-slate-500 hover:text-slate-300 transition-transform flex-shrink-0 ${open ? 'rotate-180' : ''}`}>
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+            <path d="M2 3.5l3 3 3-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+        </button>
+        <button onClick={onDelete}
+          className="text-slate-600 hover:text-red-400 text-xs flex-shrink-0 transition-colors font-bold">✕</button>
+      </div>
+
+      {/* Expanded editor */}
+      {open && (
+        <div className="px-2.5 pb-2.5 pt-0 space-y-2 border-t border-slate-700/50">
+          {/* Type selector */}
+          <div className="flex gap-1 pt-2">
+            {(['multichoice', 'truefalse', 'shortanswer', 'numerical'] as QuizQuestionType[]).map((t) => (
+              <button key={t} onClick={() => {
+                if (t === question.type) return;
+                if (t === 'multichoice') onChange({ ...question, type: 'multichoice', single: true, answers: [{ id: genId(), text: '', correct: true, feedback: '' }, { id: genId(), text: '', correct: false, feedback: '' }] } as QuizQuestion);
+                else if (t === 'truefalse') onChange({ ...question, type: 'truefalse', correct: true } as QuizQuestion);
+                else if (t === 'shortanswer') onChange({ ...question, type: 'shortanswer', answers: [{ id: genId(), text: '', feedback: '' }] } as QuizQuestion);
+                else onChange({ ...question, type: 'numerical', answer: 0, tolerance: 0 } as QuizQuestion);
+              }}
+              className={`flex-1 py-0.5 text-[10px] rounded transition-colors ${question.type === t ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-400 hover:text-slate-200'}`}>
+                {TYPE_LABELS[t]}
+              </button>
+            ))}
+          </div>
+
+          {/* Énoncé */}
+          <textarea
+            value={question.text}
+            onChange={(e) => onChange({ ...question, text: e.target.value })}
+            placeholder="Énoncé de la question…"
+            rows={2}
+            className={`${inputCls} resize-none`}
+          />
+
+          {/* Points */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-slate-500 flex-shrink-0">Points</span>
+            <input type="number" min={0.5} step={0.5} value={question.points}
+              onChange={(e) => onChange({ ...question, points: Number(e.target.value) })}
+              className="w-16 bg-slate-700 text-slate-200 text-xs rounded px-2 py-1 border border-slate-600 focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+
+          {/* Type-specific editors */}
+          {question.type === 'multichoice' && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-slate-500">Réponses</span>
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1 text-[11px] text-slate-500 cursor-pointer">
+                    <input type="checkbox" checked={!question.single}
+                      onChange={(e) => onChange({ ...question, single: !e.target.checked })}
+                      className="accent-indigo-500 w-3 h-3" />
+                    Multiple
+                  </label>
+                  <button
+                    onClick={() => onChange({ ...question, answers: [...question.answers, { id: genId(), text: '', correct: false, feedback: '' }] })}
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300">+ Ajouter</button>
+                </div>
+              </div>
+              {question.answers.map((ans, ai) => (
+                <div key={ans.id} className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => {
+                      const updated = question.answers.map((a, i) =>
+                        question.single
+                          ? { ...a, correct: i === ai }
+                          : i === ai ? { ...a, correct: !a.correct } : a
+                      );
+                      onChange({ ...question, answers: updated });
+                    }}
+                    className={`w-4 h-4 rounded-full border-2 flex-shrink-0 transition-colors ${ans.correct ? 'bg-emerald-500 border-emerald-500' : 'border-slate-500 hover:border-slate-400'}`}
+                  />
+                  <input type="text" value={ans.text}
+                    onChange={(e) => onChange({ ...question, answers: question.answers.map((a, i) => i === ai ? { ...a, text: e.target.value } : a) })}
+                    placeholder={`Option ${ai + 1}…`}
+                    className={`${inputCls} flex-1`}
+                  />
+                  <button
+                    onClick={() => onChange({ ...question, answers: question.answers.filter((_, i) => i !== ai) })}
+                    disabled={question.answers.length <= 2}
+                    className="text-slate-600 hover:text-red-400 text-xs disabled:opacity-20 transition-colors">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {question.type === 'truefalse' && (
+            <div className="flex gap-2">
+              {([true, false] as const).map((val) => (
+                <button key={String(val)} onClick={() => onChange({ ...question, correct: val })}
+                  className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    question.correct === val ? 'bg-emerald-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-slate-200'
+                  }`}>
+                  {val ? 'Vrai ✓' : 'Faux ✕'}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {question.type === 'shortanswer' && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] text-slate-500">Réponses acceptées</span>
+                <button
+                  onClick={() => onChange({ ...question, answers: [...question.answers, { id: genId(), text: '', feedback: '' }] })}
+                  className="text-[11px] text-indigo-400 hover:text-indigo-300">+ Ajouter</button>
+              </div>
+              {question.answers.map((ans, ai) => (
+                <div key={ans.id} className="flex items-center gap-1.5">
+                  <input type="text" value={ans.text}
+                    onChange={(e) => onChange({ ...question, answers: question.answers.map((a, i) => i === ai ? { ...a, text: e.target.value } : a) })}
+                    placeholder="Réponse acceptée…"
+                    className={`${inputCls} flex-1`}
+                  />
+                  <button onClick={() => onChange({ ...question, answers: question.answers.filter((_, i) => i !== ai) })}
+                    disabled={question.answers.length <= 1}
+                    className="text-slate-600 hover:text-red-400 text-xs disabled:opacity-20 transition-colors">✕</button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {question.type === 'numerical' && (
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label className="block text-[11px] text-slate-500 mb-1">Réponse</label>
+                <input type="number" value={question.answer}
+                  onChange={(e) => onChange({ ...question, answer: Number(e.target.value) })}
+                  className={inputCls}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-[11px] text-slate-500 mb-1">Tolérance ±</label>
+                <input type="number" min={0} step={0.1} value={question.tolerance}
+                  onChange={(e) => onChange({ ...question, tolerance: Number(e.target.value) })}
+                  className={inputCls}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* General feedback */}
+          <input type="text" value={question.generalfeedback ?? ''}
+            onChange={(e) => onChange({ ...question, generalfeedback: e.target.value })}
+            placeholder="Feedback général (optionnel)…"
+            className={inputCls}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── PropertiesPanel ──────────────────────────────────────────────────────────
+
 export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
   const { nodes, updateNode, deleteNode, setSelectedNode } = useMindmapStore();
   const [aiOpen, setAiOpen] = useState(false);
   const [pageEditorOpen, setPageEditorOpen] = useState<'description' | 'content' | null>(null);
   const [chapterEditorOpen, setChapterEditorOpen] = useState<number | null>(null);
+  const [quizAiOpen, setQuizAiOpen] = useState(false);
   const node = nodes.find((n) => n.id === nodeId);
 
   if (!node) return null;
@@ -341,6 +790,20 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
 
   return (
     <>
+    {quizAiOpen && data.subtype === 'quiz' && (
+      <div className="absolute inset-0 z-30">
+        <QuizAiPanel
+          quizName={String(data.name ?? 'Quiz')}
+          nodes={nodes}
+          currentNodeId={nodeId}
+          onInsert={(generated) => {
+            const existing = (data.questions ?? []) as QuizQuestion[];
+            update('questions', [...existing, ...generated]);
+          }}
+          onClose={() => setQuizAiOpen(false)}
+        />
+      </div>
+    )}
     {pageEditorOpen === 'description' && (
       <PageEditorModal
         title={String(data.name ?? 'Page')}
@@ -699,24 +1162,88 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                 </Field>
               </>
             )}
-            {data.subtype === 'quiz' && (
-              <>
-                <Field label="Tentatives">
-                  <TextInput
-                    value={String(data.attempts ?? '')}
-                    onChange={(v) => update('attempts', Number(v))}
-                    placeholder="Illimité"
-                  />
-                </Field>
-                <Field label="Limite de temps (min)">
-                  <TextInput
-                    value={data.timelimit ? String(Number(data.timelimit) / 60) : ''}
-                    onChange={(v) => update('timelimit', Number(v) * 60)}
-                    placeholder="Aucune"
-                  />
-                </Field>
-              </>
-            )}
+            {data.subtype === 'quiz' && (() => {
+              const questions = (data.questions ?? []) as QuizQuestion[];
+              const genId = () => `q-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+              const addQuestion = () => {
+                const q: QuizQuestion = {
+                  id: genId(), type: 'multichoice', text: '', points: 1, single: true,
+                  answers: [
+                    { id: genId(), text: '', correct: true, feedback: '' },
+                    { id: genId(), text: '', correct: false, feedback: '' },
+                  ],
+                };
+                update('questions', [...questions, q]);
+              };
+              const updateQuestion = (idx: number, q: QuizQuestion) => {
+                update('questions', questions.map((x, i) => i === idx ? q : x));
+              };
+              const removeQuestion = (idx: number) => {
+                update('questions', questions.filter((_, i) => i !== idx));
+              };
+              return (
+                <>
+                  <div className="flex gap-2">
+                    <div className="flex-1">
+                      <Field label="Tentatives (0 = illimité)">
+                        <TextInput value={String(data.attempts ?? 0)} onChange={(v) => update('attempts', Number(v))} placeholder="0" />
+                      </Field>
+                    </div>
+                    <div className="flex-1">
+                      <Field label="Durée (min)">
+                        <TextInput value={data.timelimit ? String(Number(data.timelimit) / 60) : ''} onChange={(v) => update('timelimit', Number(v) * 60)} placeholder="Aucune" />
+                      </Field>
+                    </div>
+                  </div>
+                  <Field label="Méthode de notation">
+                    <select value={String(data.grademethod ?? 'highest')} onChange={(e) => update('grademethod', e.target.value)}
+                      className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 border border-slate-700 focus:border-indigo-500 focus:outline-none">
+                      <option value="highest">Note la plus haute</option>
+                      <option value="average">Moyenne</option>
+                      <option value="first">Première tentative</option>
+                      <option value="last">Dernière tentative</option>
+                    </select>
+                  </Field>
+                  <Toggle checked={Boolean(data.shuffleanswers)} onChange={(v) => update('shuffleanswers', v)} label="Mélanger les réponses" />
+
+                  {/* Questions */}
+                  <div className="border-t border-slate-700/40 pt-2 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                        Questions{questions.length > 0 ? ` (${questions.length})` : ''}
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setQuizAiOpen(true)}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold
+                                     bg-indigo-500/15 text-indigo-400 border border-indigo-500/20
+                                     hover:bg-indigo-500/25 hover:text-indigo-300 transition-colors">
+                          ✨ IA
+                        </button>
+                        <button onClick={addQuestion}
+                          className="text-xs text-amber-400 hover:text-amber-300 font-medium transition-colors">
+                          + Ajouter
+                        </button>
+                      </div>
+                    </div>
+                    {questions.length === 0 && (
+                      <p className="text-xs text-slate-600 text-center py-3">Aucune question — cliquez sur + Ajouter ou ✨ IA</p>
+                    )}
+                    {questions.map((q, idx) => (
+                      <QuestionCard
+                        key={q.id}
+                        question={q}
+                        index={idx}
+                        total={questions.length}
+                        onChange={(nq) => updateQuestion(idx, nq)}
+                        onDelete={() => removeQuestion(idx)}
+                        onMoveUp={() => { const a = [...questions]; [a[idx-1], a[idx]] = [a[idx], a[idx-1]]; update('questions', a); }}
+                        onMoveDown={() => { const a = [...questions]; [a[idx+1], a[idx]] = [a[idx], a[idx+1]]; update('questions', a); }}
+                      />
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
             {data.subtype === 'forum' && (
               <Field label="Type de forum">
                 <select

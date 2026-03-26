@@ -218,6 +218,149 @@ ${params.existingContent ? `\nContenu existant (contexte ou à améliorer) :\n${
   }
 }
 
+// ─── Generate quiz questions ──────────────────────────────────────────────────
+
+export interface CourseContentSource {
+  nodeId: string;
+  label: string;   // node name (for context)
+  content: string; // text/HTML content
+}
+
+export interface GenerateQuizParams {
+  quizName: string;
+  prompt: string;
+  questionCount: number;
+  questionTypes: ('multichoice' | 'truefalse' | 'shortanswer' | 'numerical')[];
+  courseContent: CourseContentSource[];
+}
+
+const QUIZ_JSON_SCHEMA = `[
+  {
+    "id": "<uuid>",
+    "type": "multichoice",
+    "text": "<question HTML>",
+    "points": 1,
+    "single": true,
+    "answers": [
+      { "id": "<uuid>", "text": "...", "correct": true,  "feedback": "..." },
+      { "id": "<uuid>", "text": "...", "correct": false, "feedback": "..." }
+    ],
+    "generalfeedback": "..."
+  },
+  {
+    "id": "<uuid>",
+    "type": "truefalse",
+    "text": "<question>",
+    "points": 1,
+    "correct": true,
+    "feedbackTrue": "...",
+    "feedbackFalse": "...",
+    "generalfeedback": "..."
+  },
+  {
+    "id": "<uuid>",
+    "type": "shortanswer",
+    "text": "<question>",
+    "points": 1,
+    "answers": [{ "id": "<uuid>", "text": "<accepted answer>", "feedback": "..." }],
+    "generalfeedback": "..."
+  },
+  {
+    "id": "<uuid>",
+    "type": "numerical",
+    "text": "<question>",
+    "points": 1,
+    "answer": 42,
+    "tolerance": 0.5,
+    "generalfeedback": "..."
+  }
+]`;
+
+function generateUUID(): string {
+  return Math.random().toString(36).slice(2, 10) + '-' + Date.now().toString(36);
+}
+
+function injectUUIDs(questions: unknown[]): unknown[] {
+  return questions.map((q: unknown) => {
+    const question = q as Record<string, unknown>;
+    const result: Record<string, unknown> = { ...question, id: question.id || generateUUID() };
+    if (Array.isArray(result['answers'])) {
+      result['answers'] = (result['answers'] as unknown[]).map((a: unknown) => {
+        const answer = a as Record<string, unknown>;
+        return { ...answer, id: answer['id'] || generateUUID() };
+      });
+    }
+    return result;
+  });
+}
+
+export async function generateQuizQuestions(
+  params: GenerateQuizParams,
+): Promise<{ questions: unknown[]; input_tokens: number; output_tokens: number }> {
+  const client = getClient();
+
+  const contentBlock = params.courseContent.length > 0
+    ? params.courseContent
+        .map((s) => `### ${s.label}\n${s.content}`)
+        .join('\n\n')
+    : null;
+
+  const typesList = params.questionTypes.join(', ');
+
+  const systemPrompt = `${SYSTEM_BASE}
+
+Tu génères des questions de quiz Moodle au format JSON strict.
+Quiz : "${params.quizName}"
+Nombre de questions demandées : ${params.questionCount}
+Types autorisés : ${typesList}
+
+Règles :
+- Retourne UNIQUEMENT un tableau JSON valide, sans texte avant ni après, sans blocs markdown
+- Chaque question doit avoir un "id" unique (chaîne alphanumérique)
+- Chaque réponse (multichoice, shortanswer) doit avoir un "id" unique
+- Pour "multichoice" avec plusieurs bonnes réponses, utilise "single": false
+- Les textes de questions peuvent contenir du HTML simple (strong, em, code)
+- Rédige dans la langue du contenu source ou du prompt
+
+Format JSON attendu :
+${QUIZ_JSON_SCHEMA}`;
+
+  const userMessage = [
+    params.prompt,
+    contentBlock ? `\n\nContenu source à utiliser :\n\n${contentBlock}` : '',
+  ].join('');
+
+  const message = await client.messages.create({
+    model: MODEL,
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userMessage }],
+  });
+
+  const raw = message.content
+    .filter((b) => b.type === 'text')
+    .map((b) => (b as { type: 'text'; text: string }).text)
+    .join('');
+
+  // Strip markdown fences if present
+  const start = raw.indexOf('[');
+  const end = raw.lastIndexOf(']');
+  const jsonText = start !== -1 && end > start ? raw.slice(start, end + 1) : raw.trim();
+
+  let questions: unknown[];
+  try {
+    questions = JSON.parse(jsonText) as unknown[];
+  } catch {
+    throw new Error(`Claude did not return valid JSON: ${raw.slice(0, 200)}`);
+  }
+
+  return {
+    questions: injectUUIDs(questions),
+    input_tokens: message.usage.input_tokens,
+    output_tokens: message.usage.output_tokens,
+  };
+}
+
 // ─── Analyze mindmap coherence ────────────────────────────────────────────────
 
 export interface AnalyzeParams {

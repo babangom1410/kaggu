@@ -94,15 +94,74 @@ export interface AssignActivityData extends CompletionSettings, RestrictionsSett
   visible: boolean;
 }
 
+// --- Quiz question types ---
+
+export type QuizQuestionType = 'multichoice' | 'truefalse' | 'shortanswer' | 'numerical';
+
+export interface QuizAnswerOption {
+  id: string;           // client-side UUID
+  text: string;
+  correct: boolean;
+  feedback?: string;
+}
+
+export interface MultichoiceQuestion {
+  id: string;
+  type: 'multichoice';
+  text: string;         // question HTML
+  points: number;
+  single: boolean;      // true = one correct answer, false = multiple
+  answers: QuizAnswerOption[];
+  generalfeedback?: string;
+}
+
+export interface TruefalseQuestion {
+  id: string;
+  type: 'truefalse';
+  text: string;
+  points: number;
+  correct: boolean;
+  feedbackTrue?: string;
+  feedbackFalse?: string;
+  generalfeedback?: string;
+}
+
+export interface ShortanswerQuestion {
+  id: string;
+  type: 'shortanswer';
+  text: string;
+  points: number;
+  answers: { id: string; text: string; feedback?: string }[]; // accepted answers
+  generalfeedback?: string;
+}
+
+export interface NumericalQuestion {
+  id: string;
+  type: 'numerical';
+  text: string;
+  points: number;
+  answer: number;
+  tolerance: number;    // ± accepted range
+  generalfeedback?: string;
+}
+
+export type QuizQuestion =
+  | MultichoiceQuestion
+  | TruefalseQuestion
+  | ShortanswerQuestion
+  | NumericalQuestion;
+
 export interface QuizActivityData extends CompletionSettings, RestrictionsSettings {
   subtype: 'quiz';
   name: string;
   description?: string;
   timeopen?: string;
   timeclose?: string;
-  timelimit?: number;
-  attempts?: number;
+  timelimit?: number;       // seconds, 0 = no limit
+  attempts?: number;        // 0 = unlimited
   grademethod?: 'highest' | 'average' | 'first' | 'last';
+  shuffleanswers?: boolean;
+  questions?: QuizQuestion[];
   visible: boolean;
 }
 
