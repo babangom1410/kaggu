@@ -397,6 +397,9 @@ class external extends \external_api {
                 $printlastmodified = isset($opts['printlastmodified']) ? (int)$opts['printlastmodified'] : 1;
                 $info->intro             = $intro;
                 $info->introformat       = FORMAT_HTML;
+                // Moodle 5.x: page_update_instance reads $data->introeditor['text'] / ['format']
+                $info->introeditor       = ['text' => $intro, 'format' => FORMAT_HTML, 'itemid' => 0];
+                $info->showdescription   = (int)($opts['displaydescription'] ?? 0);
                 $info->content           = $content;
                 $info->contentformat     = FORMAT_HTML;
                 // Moodle 5.x: page_update_instance reads $data->page['text'] / ['format']
@@ -606,10 +609,13 @@ class external extends \external_api {
             // reconstruct from get_moduleinfo_data alone in Moodle 5.x.
             switch ($cm->modname) {
                 case 'page':
-                    // page_update_instance reads $data->page['text']/['format']
+                    // page_update_instance reads $data->page['text']/['format'] and $data->introeditor['text']
                     $content = $data->content ?? '';
                     $cfmt    = $data->contentformat ?? FORMAT_HTML;
                     $data->page = ['text' => $content, 'format' => $cfmt, 'itemid' => 0];
+                    $intro_val   = $data->intro ?? '';
+                    $ifmt        = $data->introformat ?? FORMAT_HTML;
+                    $data->introeditor = ['text' => $intro_val, 'format' => $ifmt, 'itemid' => 0];
                     $data->displayoptions = serialize([
                         'printintro'        => (int)($data->printintro        ?? 0),
                         'printlastmodified' => (int)($data->printlastmodified ?? 1),
