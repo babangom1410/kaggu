@@ -79,6 +79,39 @@ function Toggle({
   );
 }
 
+function EditorButton({
+  value,
+  placeholder,
+  onClick,
+  required,
+}: {
+  value: string;
+  placeholder: string;
+  onClick: () => void;
+  required?: boolean;
+}) {
+  const preview = value.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return (
+    <button
+      onClick={onClick}
+      className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-700
+                 bg-slate-800 hover:border-amber-500/50 transition-colors text-left group"
+    >
+      <span className="text-amber-400 text-sm flex-shrink-0">📝</span>
+      <div className="flex-1 min-w-0">
+        {preview ? (
+          <span className="text-xs text-slate-400 line-clamp-2 leading-relaxed">{preview.slice(0, 100)}{preview.length > 100 ? '…' : ''}</span>
+        ) : (
+          <span className={`text-xs ${required ? 'text-amber-600' : 'text-slate-600'}`}>{placeholder}</span>
+        )}
+      </div>
+      <svg width="11" height="11" viewBox="0 0 12 12" fill="none" className="text-slate-500 group-hover:text-amber-400 flex-shrink-0 transition-colors">
+        <path d="M8.5 1.5l2 2-7 7H1.5v-2l7-7z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+}
+
 // ─── CompletionPanel ──────────────────────────────────────────────────────────
 
 function SectionHeader({ label, open, onToggle }: { label: string; open: boolean; onToggle: () => void }) {
@@ -273,7 +306,7 @@ interface PropertiesPanelProps {
 export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
   const { nodes, updateNode, deleteNode, setSelectedNode } = useMindmapStore();
   const [aiOpen, setAiOpen] = useState(false);
-  const [pageEditorOpen, setPageEditorOpen] = useState(false);
+  const [pageEditorOpen, setPageEditorOpen] = useState<'description' | 'content' | null>(null);
   const node = nodes.find((n) => n.id === nodeId);
 
   if (!node) return null;
@@ -307,12 +340,22 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
 
   return (
     <>
-    {pageEditorOpen && (
+    {pageEditorOpen === 'description' && (
       <PageEditorModal
         title={String(data.name ?? 'Page')}
+        label="Description"
+        content={String(data.description ?? '')}
+        onSave={(html) => update('description', html)}
+        onClose={() => setPageEditorOpen(null)}
+      />
+    )}
+    {pageEditorOpen === 'content' && (
+      <PageEditorModal
+        title={String(data.name ?? 'Page')}
+        label="Contenu de la page"
         content={String(data.content ?? '')}
         onSave={(html) => update('content', html)}
-        onClose={() => setPageEditorOpen(false)}
+        onClose={() => setPageEditorOpen(null)}
       />
     )}
     <div className="flex flex-col h-full text-slate-200">
@@ -480,30 +523,41 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
               </Field>
             )}
             {data.subtype === 'page' && (
-              <Field label="Contenu">
-                <button
-                  onClick={() => setPageEditorOpen(true)}
-                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-700
-                             bg-slate-800 hover:border-amber-500/50 hover:bg-slate-750 transition-colors text-left group"
-                >
-                  <span className="text-amber-400 text-base">📝</span>
-                  <div className="flex-1 min-w-0">
-                    {data.content ? (
-                      <div
-                        className="text-xs text-slate-400 line-clamp-2 leading-relaxed"
-                        dangerouslySetInnerHTML={{
-                          __html: String(data.content).replace(/<[^>]+>/g, ' ').slice(0, 120) + (String(data.content).length > 120 ? '…' : ''),
-                        }}
-                      />
-                    ) : (
-                      <span className="text-xs text-slate-600">Cliquez pour rédiger le contenu…</span>
-                    )}
-                  </div>
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-slate-500 group-hover:text-amber-400 flex-shrink-0 transition-colors">
-                    <path d="M8.5 1.5l2 2-7 7H1.5v-2l7-7z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                </button>
-              </Field>
+              <>
+                <Field label="Description">
+                  <EditorButton
+                    value={String(data.description ?? '')}
+                    placeholder="Résumé affiché sur la page de cours…"
+                    onClick={() => setPageEditorOpen('description')}
+                  />
+                </Field>
+                <Toggle
+                  checked={Boolean(data.displaydescription)}
+                  onChange={(v) => update('displaydescription', v)}
+                  label="Afficher sur la page de cours"
+                />
+                <Field label="Contenu de la page">
+                  <EditorButton
+                    value={String(data.content ?? '')}
+                    placeholder="Cliquez pour rédiger le contenu…"
+                    onClick={() => setPageEditorOpen('content')}
+                    required
+                  />
+                </Field>
+                <div className="pt-1 border-t border-slate-700/40 space-y-1.5">
+                  <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Apparence</div>
+                  <Toggle
+                    checked={Boolean(data.printintro ?? false)}
+                    onChange={(v) => update('printintro', v)}
+                    label="Afficher la description dans la page"
+                  />
+                  <Toggle
+                    checked={Boolean(data.printlastmodified ?? true)}
+                    onChange={(v) => update('printlastmodified', v)}
+                    label="Afficher la date de modification"
+                  />
+                </div>
+              </>
             )}
             {data.subtype === 'book' && (
               <Field label="Numérotation des chapitres">
