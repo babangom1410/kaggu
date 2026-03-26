@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMindmapStore } from '@/stores/mindmap-store';
 import { AiAssistant } from '@/components/mindmap/AiAssistant';
+import { PageEditorModal } from '@/components/mindmap/PageEditorModal';
 import type { Restriction, MindmapNode } from '@/types/mindmap.types';
 
 const TYPE_META: Record<string, { label: string; icon: string; color: string; bg: string }> = {
@@ -272,6 +273,7 @@ interface PropertiesPanelProps {
 export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
   const { nodes, updateNode, deleteNode, setSelectedNode } = useMindmapStore();
   const [aiOpen, setAiOpen] = useState(false);
+  const [pageEditorOpen, setPageEditorOpen] = useState(false);
   const node = nodes.find((n) => n.id === nodeId);
 
   if (!node) return null;
@@ -304,6 +306,15 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
   }
 
   return (
+    <>
+    {pageEditorOpen && (
+      <PageEditorModal
+        title={String(data.name ?? 'Page')}
+        content={String(data.content ?? '')}
+        onSave={(html) => update('content', html)}
+        onClose={() => setPageEditorOpen(false)}
+      />
+    )}
     <div className="flex flex-col h-full text-slate-200">
       {/* Header */}
       <div className="px-5 py-4 border-b border-slate-700/50">
@@ -470,15 +481,28 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
             )}
             {data.subtype === 'page' && (
               <Field label="Contenu">
-                <textarea
-                  value={String(data.content ?? '')}
-                  onChange={(e) => update('content', e.target.value)}
-                  placeholder="Contenu de la page..."
-                  rows={4}
-                  className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
-                             border border-slate-700 focus:border-indigo-500 focus:outline-none
-                             placeholder:text-slate-600 resize-none"
-                />
+                <button
+                  onClick={() => setPageEditorOpen(true)}
+                  className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-slate-700
+                             bg-slate-800 hover:border-amber-500/50 hover:bg-slate-750 transition-colors text-left group"
+                >
+                  <span className="text-amber-400 text-base">📝</span>
+                  <div className="flex-1 min-w-0">
+                    {data.content ? (
+                      <div
+                        className="text-xs text-slate-400 line-clamp-2 leading-relaxed"
+                        dangerouslySetInnerHTML={{
+                          __html: String(data.content).replace(/<[^>]+>/g, ' ').slice(0, 120) + (String(data.content).length > 120 ? '…' : ''),
+                        }}
+                      />
+                    ) : (
+                      <span className="text-xs text-slate-600">Cliquez pour rédiger le contenu…</span>
+                    )}
+                  </div>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" className="text-slate-500 group-hover:text-amber-400 flex-shrink-0 transition-colors">
+                    <path d="M8.5 1.5l2 2-7 7H1.5v-2l7-7z" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
+                </button>
               </Field>
             )}
             {data.subtype === 'book' && (
@@ -717,5 +741,6 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
         </div>
       )}
     </div>
+    </>
   );
 }
