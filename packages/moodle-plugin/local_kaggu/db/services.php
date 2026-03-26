@@ -64,6 +64,16 @@ $functions = [
         'loginrequired' => true,
     ],
 
+    'local_kaggu_update_book_chapters' => [
+        'classname'     => 'local_kaggu\external',
+        'methodname'    => 'update_book_chapters',
+        'description'   => 'Replace all chapters of a book resource (identified by cmid).',
+        'type'          => 'write',
+        'capabilities'  => 'moodle/course:manageactivities',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
+
     'local_kaggu_search_courses' => [
         'classname'     => 'local_kaggu\external',
         'methodname'    => 'search_courses',

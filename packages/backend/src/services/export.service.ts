@@ -7,6 +7,7 @@ import {
   ensureSection,
   createModule,
   updateModule,
+  updateBookChapters,
   computeChecksum,
   dateToTimestamp,
   uploadFileToDraft,
@@ -154,6 +155,21 @@ function buildCourseData(data: Record<string, unknown>, sectionCount: number) {
     visible: data.visible !== false ? 1 : 0,
     numsections: sectionCount,
   };
+}
+
+async function syncBookChapters(
+  config: MoodleConnectionConfig,
+  cmid: number,
+  chaptersData: unknown,
+): Promise<void> {
+  const raw = Array.isArray(chaptersData) ? chaptersData : [];
+  const chapters = (raw as Array<Record<string, unknown>>).map((ch) => ({
+    title:      String(ch.title      || ''),
+    content:    String(ch.content    || ''),
+    subchapter: ch.subchapter ? 1 : 0 as 0 | 1,
+    hidden:     0 as 0 | 1,
+  }));
+  await updateBookChapters(config, cmid, chapters);
 }
 
 function buildModuleOptions(node: BackendNode, fileItemIds?: Map<string, number>): {
@@ -552,6 +568,9 @@ export async function exportProject(
               ...completionFields,
               availability,
             });
+            if (moduleOpts.moduletype === 'book') {
+              await syncBookChapters(config, existingModule.moodle_id, moduleNode.data.chapters);
+            }
             report.updated++;
           } else {
             // Checksum matches (content unchanged) — still sync completion and
@@ -564,6 +583,9 @@ export async function exportProject(
               ...completionFields,
               availability,
             });
+            if (moduleOpts.moduletype === 'book') {
+              await syncBookChapters(config, existingModule.moodle_id, moduleNode.data.chapters);
+            }
             report.skipped++;
           }
           await upsertMapping(moduleNode.id, 'module', existingModule.moodle_id, moduleChecksum);
@@ -579,6 +601,9 @@ export async function exportProject(
             ...completionFields,
             ...(availability !== '' ? { availability } : {}),
           });
+          if (moduleOpts.moduletype === 'book') {
+            await syncBookChapters(config, result.cmid, moduleNode.data.chapters);
+          }
           report.created++;
           await upsertMapping(moduleNode.id, 'module', result.cmid, moduleChecksum);
         }

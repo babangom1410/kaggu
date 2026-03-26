@@ -53,9 +53,19 @@ export interface UrlResourceData extends CompletionSettings, RestrictionsSetting
 export interface PageResourceData extends CompletionSettings, RestrictionsSettings {
   subtype: 'page';
   name: string;
-  description?: string;
-  content: string;
+  description?: string;       // intro HTML (shown on course page)
+  displaydescription?: boolean; // show description on course page
+  content: string;             // page body HTML
+  printintro?: boolean;        // display description inside page
+  printlastmodified?: boolean; // display last modified date
   visible: boolean;
+}
+
+export interface BookChapter {
+  id: string;           // client-side UUID (stable React key)
+  title: string;
+  content: string;      // HTML body
+  subchapter: boolean;  // true = indented subchapter
 }
 
 export interface BookResourceData extends CompletionSettings, RestrictionsSettings {
@@ -63,6 +73,7 @@ export interface BookResourceData extends CompletionSettings, RestrictionsSettin
   name: string;
   description?: string;
   numbering?: 0 | 1 | 2 | 3; // 0=none, 1=numbers, 2=bullets, 3=indented
+  chapters?: BookChapter[];
   visible: boolean;
 }
 

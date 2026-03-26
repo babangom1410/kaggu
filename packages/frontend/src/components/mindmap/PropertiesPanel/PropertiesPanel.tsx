@@ -307,6 +307,7 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
   const { nodes, updateNode, deleteNode, setSelectedNode } = useMindmapStore();
   const [aiOpen, setAiOpen] = useState(false);
   const [pageEditorOpen, setPageEditorOpen] = useState<'description' | 'content' | null>(null);
+  const [chapterEditorOpen, setChapterEditorOpen] = useState<number | null>(null);
   const node = nodes.find((n) => n.id === nodeId);
 
   if (!node) return null;
@@ -358,6 +359,23 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
         onClose={() => setPageEditorOpen(null)}
       />
     )}
+    {chapterEditorOpen !== null && (() => {
+      const chapters = (data.chapters ?? []) as Array<{ id: string; title: string; content: string; subchapter: boolean }>;
+      const ch = chapters[chapterEditorOpen];
+      if (!ch) return null;
+      return (
+        <PageEditorModal
+          title={ch.title || 'Chapitre'}
+          label={ch.subchapter ? 'Sous-chapitre' : 'Chapitre'}
+          content={ch.content ?? ''}
+          onSave={(html) => {
+            const updated = chapters.map((c, i) => i === chapterEditorOpen ? { ...c, content: html } : c);
+            update('chapters', updated);
+          }}
+          onClose={() => setChapterEditorOpen(null)}
+        />
+      );
+    })()}
     <div className="flex flex-col h-full text-slate-200">
       {/* Header */}
       <div className="px-5 py-4 border-b border-slate-700/50">
@@ -559,21 +577,87 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                 </div>
               </>
             )}
-            {data.subtype === 'book' && (
-              <Field label="Numérotation des chapitres">
-                <select
-                  value={String(data.numbering ?? 1)}
-                  onChange={(e) => update('numbering', Number(e.target.value))}
-                  className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
-                             border border-slate-700 focus:border-indigo-500 focus:outline-none"
-                >
-                  <option value={0}>Aucune</option>
-                  <option value={1}>Nombres (1, 2, 3…)</option>
-                  <option value={2}>Puces</option>
-                  <option value={3}>Indentation</option>
-                </select>
-              </Field>
-            )}
+            {data.subtype === 'book' && (() => {
+              const chapters = (data.chapters ?? []) as Array<{ id: string; title: string; content: string; subchapter: boolean }>;
+              const genId = () => `ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+              return (
+                <>
+                  <Field label="Description">
+                    <EditorButton
+                      value={String(data.description ?? '')}
+                      placeholder="Description du livre…"
+                      onClick={() => setPageEditorOpen('description')}
+                    />
+                  </Field>
+                  <Field label="Numérotation des chapitres">
+                    <select
+                      value={String(data.numbering ?? 1)}
+                      onChange={(e) => update('numbering', Number(e.target.value))}
+                      className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                                 border border-slate-700 focus:border-indigo-500 focus:outline-none"
+                    >
+                      <option value={0}>Aucune</option>
+                      <option value={1}>Nombres (1, 2, 3…)</option>
+                      <option value={2}>Puces</option>
+                      <option value={3}>Indentation</option>
+                    </select>
+                  </Field>
+                  <div className="border-t border-slate-700/40 pt-2 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                        Chapitres{chapters.length > 0 ? ` (${chapters.length})` : ''}
+                      </span>
+                      <button
+                        onClick={() => update('chapters', [...chapters, { id: genId(), title: 'Nouveau chapitre', content: '', subchapter: false }])}
+                        className="text-xs text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                      >
+                        + Ajouter
+                      </button>
+                    </div>
+                    {chapters.length === 0 && (
+                      <p className="text-xs text-slate-600 text-center py-2">Aucun chapitre — cliquez sur + Ajouter</p>
+                    )}
+                    {chapters.map((ch, idx) => (
+                      <div key={ch.id} className="flex items-center gap-1">
+                        <div className="flex flex-col gap-px flex-shrink-0">
+                          <button
+                            onClick={() => { const a = [...chapters]; [a[idx-1], a[idx]] = [a[idx], a[idx-1]]; update('chapters', a); }}
+                            disabled={idx === 0}
+                            className="text-slate-600 hover:text-slate-300 disabled:opacity-20 text-[9px] leading-none"
+                          >▲</button>
+                          <button
+                            onClick={() => { const a = [...chapters]; [a[idx+1], a[idx]] = [a[idx], a[idx+1]]; update('chapters', a); }}
+                            disabled={idx === chapters.length - 1}
+                            className="text-slate-600 hover:text-slate-300 disabled:opacity-20 text-[9px] leading-none"
+                          >▼</button>
+                        </div>
+                        <button
+                          onClick={() => update('chapters', chapters.map((c, i) => i === idx ? { ...c, subchapter: !c.subchapter } : c))}
+                          title={ch.subchapter ? 'Sous-chapitre' : 'Chapitre'}
+                          className={`text-[10px] rounded px-1 py-0.5 flex-shrink-0 font-mono transition-colors ${ch.subchapter ? 'bg-slate-700 text-slate-500' : 'bg-slate-600 text-slate-200'}`}
+                        >{ch.subchapter ? '↳' : '■'}</button>
+                        <input
+                          type="text"
+                          value={ch.title}
+                          onChange={(e) => update('chapters', chapters.map((c, i) => i === idx ? { ...c, title: e.target.value } : c))}
+                          placeholder="Titre…"
+                          className="flex-1 min-w-0 bg-slate-800 text-slate-200 text-xs rounded px-2 py-1.5 border border-slate-700 focus:border-indigo-500 focus:outline-none placeholder:text-slate-600"
+                        />
+                        <button
+                          onClick={() => setChapterEditorOpen(idx)}
+                          title="Rédiger le contenu"
+                          className={`text-sm flex-shrink-0 transition-colors ${ch.content ? 'text-amber-400 hover:text-amber-300' : 'text-slate-600 hover:text-slate-400'}`}
+                        >📝</button>
+                        <button
+                          onClick={() => { update('chapters', chapters.filter((_, i) => i !== idx)); if (chapterEditorOpen === idx) setChapterEditorOpen(null); }}
+                          className="text-slate-600 hover:text-red-400 text-xs flex-shrink-0 transition-colors font-bold"
+                        >✕</button>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              );
+            })()}
             <Toggle
               checked={Boolean(data.visible)}
               onChange={(v) => update('visible', v)}

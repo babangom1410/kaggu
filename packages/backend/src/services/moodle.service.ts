@@ -338,6 +338,21 @@ export async function deleteModule(
   await moodleCall(config, 'local_kaggu_delete_module', { cmid });
 }
 
+export interface BookChapterInput {
+  title: string;
+  content: string;
+  subchapter: 0 | 1;
+  hidden?: 0 | 1;
+}
+
+export async function updateBookChapters(
+  config: MoodleConnectionConfig,
+  cmid: number,
+  chapters: BookChapterInput[],
+): Promise<void> {
+  await moodleCall(config, 'local_kaggu_update_book_chapters', { cmid, chapters });
+}
+
 // ─── File upload ──────────────────────────────────────────────────────────────
 
 /**

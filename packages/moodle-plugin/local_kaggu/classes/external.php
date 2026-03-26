@@ -416,6 +416,9 @@ class external extends \external_api {
                 $info->numbering    = (int)($opts['numbering'] ?? 1);
                 $info->navstyle     = 1; // image buttons
                 $info->customtitles = 0;
+                // Moodle 5.x: book_update_instance reads $data->introeditor
+                $intro_val = $info->intro ?? '';
+                $info->introeditor = ['text' => $intro_val, 'format' => FORMAT_HTML, 'itemid' => 0];
                 break;
 
             case 'h5pactivity':
@@ -620,6 +623,10 @@ class external extends \external_api {
                         'printintro'        => (int)($data->printintro        ?? 0),
                         'printlastmodified' => (int)($data->printlastmodified ?? 1),
                     ]);
+                    break;
+                case 'book':
+                    $intro_val = $data->intro ?? '';
+                    $data->introeditor = ['text' => $intro_val, 'format' => $data->introformat ?? FORMAT_HTML, 'itemid' => 0];
                     break;
                 case 'quiz':
                     // quiz_update_instance maps quizpassword → password column
@@ -839,6 +846,72 @@ class external extends \external_api {
 
         return ['courses' => $courses];
     }
+
+    // ─── update_book_chapters ─────────────────────────────────────────────────
+
+    public static function update_book_chapters_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'cmid'     => new \external_value(PARAM_INT, 'Course module ID of the book'),
+            'chapters' => new \external_multiple_structure(
+                new \external_single_structure([
+                    'title'      => new \external_value(PARAM_TEXT, 'Chapter title'),
+                    'content'    => new \external_value(PARAM_RAW,  'Chapter HTML content',   VALUE_DEFAULT, ''),
+                    'subchapter' => new \external_value(PARAM_INT,  '0=chapter 1=subchapter', VALUE_DEFAULT, 0),
+                    'hidden'     => new \external_value(PARAM_INT,  '0=visible 1=hidden',     VALUE_DEFAULT, 0),
+                ])
+            ),
+        ]);
+    }
+
+    public static function update_book_chapters(int $cmid, array $chapters): array {
+        global $DB;
+
+        $params = self::validate_parameters(self::update_book_chapters_parameters(), [
+            'cmid' => $cmid, 'chapters' => $chapters,
+        ]);
+
+        require_login();
+
+        $cm = get_coursemodule_from_id('book', $params['cmid'], 0, false, MUST_EXIST);
+        $context = \context_module::instance($cm->id);
+        self::validate_context($context);
+        require_capability('moodle/course:manageactivities', $context);
+
+        $bookid = $cm->instance;
+
+        // Replace all existing chapters
+        $DB->delete_records('book_chapters', ['bookid' => $bookid]);
+
+        $pagenum = 1;
+        foreach ($params['chapters'] as $ch) {
+            $record = new \stdClass();
+            $record->bookid        = $bookid;
+            $record->pagenum       = $pagenum++;
+            $record->subchapter    = (int)$ch['subchapter'];
+            $record->title         = $ch['title'];
+            $record->content       = $ch['content'];
+            $record->contentformat = FORMAT_HTML;
+            $record->hidden        = (int)$ch['hidden'];
+            $record->timecreated   = time();
+            $record->timemodified  = time();
+            $record->importsrc     = '';
+            $DB->insert_record('book_chapters', $record);
+        }
+
+        // Increment revision so Moodle caches are invalidated
+        $rev = (int)$DB->get_field('book', 'revision', ['id' => $bookid]);
+        $DB->set_field('book', 'revision', $rev + 1, ['id' => $bookid]);
+
+        return ['updated' => count($params['chapters'])];
+    }
+
+    public static function update_book_chapters_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'updated' => new \external_value(PARAM_INT, 'Number of chapters saved'),
+        ]);
+    }
+
+    // ─── search_courses ───────────────────────────────────────────────────────
 
     public static function search_courses_returns(): \external_single_structure {
         return new \external_single_structure([
