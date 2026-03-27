@@ -167,7 +167,7 @@ class external extends \external_api {
             'options'             => $options,
         ]);
 
-        $allowedTypes = ['assign', 'quiz', 'forum', 'url', 'page', 'resource', 'book', 'h5pactivity', 'glossary', 'scorm', 'lesson', 'choice'];
+        $allowedTypes = ['assign', 'quiz', 'forum', 'url', 'page', 'resource', 'book', 'h5pactivity', 'glossary', 'scorm', 'lesson', 'choice', 'feedback'];
         if (!in_array($params['moduletype'], $allowedTypes)) {
             throw new \moodle_exception('error_module_type', 'local_kaggu', '', $params['moduletype']);
         }
@@ -488,7 +488,7 @@ class external extends \external_api {
                 $info->usepassword     = 0;
                 $info->password        = '';
                 $info->dependency      = 0;
-                $info->conditions      = '';
+                $info->conditions      = serialize([]);
                 $info->activitylink    = 0;
                 $info->available       = 0;
                 $info->deadline        = 0;
@@ -513,6 +513,17 @@ class external extends \external_api {
                 $info->showavailable = 0;
                 $info->option       = ['Option 1', 'Option 2'];
                 $info->limit        = [0, 0];
+                break;
+
+            case 'feedback':
+                $info->anonymous           = (int)($opts['anonymous']       ?? 1);
+                $info->multiple_submit     = (int)($opts['multiple_submit'] ?? 0);
+                $info->completionsubmit    = 0;
+                $info->timeopen            = 0;
+                $info->timeclose           = 0;
+                $info->emailteachertemplate = '';
+                $info->page_after_submit   = '';
+                $info->site_after_submit   = '';
                 break;
         }
     }
@@ -631,6 +642,16 @@ class external extends \external_api {
                 case 'quiz':
                     // quiz_update_instance maps quizpassword → password column
                     $data->quizpassword = $data->password ?? '';
+                    break;
+                case 'lesson':
+                    // lesson_update_instance requires conditions as a serialized array.
+                    // get_moduleinfo_data may return it as a plain string or null.
+                    if (empty($data->conditions) || !is_string($data->conditions) || $data->conditions[0] !== 'a') {
+                        $data->conditions = serialize([]);
+                    }
+                    break;
+                case 'feedback':
+                    // feedback_update_instance: no special field reconstruction needed.
                     break;
             }
         }
