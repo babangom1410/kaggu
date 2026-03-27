@@ -967,15 +967,18 @@ class external extends \external_api {
         // the quiz settings page because Moodle's question bank does not
         // resolve an editing context for top-level categories.
 
-        // 1. Find (or create) the top category for this course context.
+        // 1. Find (or create) the top category for this MODULE context.
+        // Using module context ($context) instead of course context so each quiz
+        // has its own isolated question category. This avoids "Invalid context id"
+        // errors on the quiz settings page in Moodle 4.x+.
         $top = $DB->get_record('question_categories',
-            ['contextid' => $coursecontext->id, 'parent' => 0],
+            ['contextid' => $context->id, 'parent' => 0],
             '*', IGNORE_MULTIPLE);
 
         if (!$top) {
             $top            = new \stdClass();
             $top->name      = 'top';
-            $top->contextid = $coursecontext->id;
+            $top->contextid = $context->id;
             $top->info      = '';
             $top->infoformat = FORMAT_HTML;
             $top->parent    = 0;
@@ -987,13 +990,13 @@ class external extends \external_api {
         // 2. Find (or create) a default sub-category inside the top category.
         $category = $DB->get_record_select('question_categories',
             'contextid = :ctxid AND parent = :parent',
-            ['ctxid' => $coursecontext->id, 'parent' => $top->id],
+            ['ctxid' => $context->id, 'parent' => $top->id],
             '*', IGNORE_MULTIPLE);
 
         if (!$category) {
             $cat             = new \stdClass();
             $cat->name       = get_string('defaultfor', 'question', format_string($cm->name));
-            $cat->contextid  = $coursecontext->id;
+            $cat->contextid  = $context->id;
             $cat->info       = '';
             $cat->infoformat = FORMAT_HTML;
             $cat->parent     = $top->id;
@@ -1021,8 +1024,9 @@ class external extends \external_api {
                     }
                     $DB->delete_records('question_versions', ['id' => $ver->id]);
                 }
-                $DB->delete_records('question_bank_entries', ['id' => $ref->questionbankentryid]);
+                // Delete question_references BEFORE question_bank_entries (FK constraint).
                 $DB->delete_records('question_references', ['id' => $ref->id]);
+                $DB->delete_records('question_bank_entries', ['id' => $ref->questionbankentryid]);
             }
         }
         $DB->delete_records('quiz_slots', ['quizid' => $quizid]);
