@@ -960,20 +960,45 @@ class external extends \external_api {
         $quizid = $cm->instance;
         $coursecontext = \context_course::instance($cm->course);
 
-        // ── Get or create a question category for this course context ──────────
-        $category = $DB->get_record('question_categories', [
-            'contextid' => $coursecontext->id,
-            'parent'    => 0,
-        ]);
+        // ── Get or create a proper question category ──────────────────────────
+        // Moodle 4.x+: questions must live in a sub-category (parent != 0).
+        // The "top" category (parent = 0) is a container only — inserting
+        // questions directly into it causes "Invalid context id" errors on
+        // the quiz settings page because Moodle's question bank does not
+        // resolve an editing context for top-level categories.
+
+        // 1. Find (or create) the top category for this course context.
+        $top = $DB->get_record('question_categories',
+            ['contextid' => $coursecontext->id, 'parent' => 0],
+            '*', IGNORE_MULTIPLE);
+
+        if (!$top) {
+            $top            = new \stdClass();
+            $top->name      = 'top';
+            $top->contextid = $coursecontext->id;
+            $top->info      = '';
+            $top->infoformat = FORMAT_HTML;
+            $top->parent    = 0;
+            $top->sortorder = 0;
+            $top->stamp     = make_unique_id_code();
+            $top->id = $DB->insert_record('question_categories', $top);
+        }
+
+        // 2. Find (or create) a default sub-category inside the top category.
+        $category = $DB->get_record_select('question_categories',
+            'contextid = :ctxid AND parent = :parent',
+            ['ctxid' => $coursecontext->id, 'parent' => $top->id],
+            '*', IGNORE_MULTIPLE);
+
         if (!$category) {
-            $cat = new \stdClass();
-            $cat->name        = get_string('defaultfor', 'question', format_string($cm->name));
-            $cat->contextid   = $coursecontext->id;
-            $cat->info        = '';
-            $cat->infoformat  = FORMAT_HTML;
-            $cat->parent      = 0;
-            $cat->sortorder   = 999;
-            $cat->stamp       = make_unique_id_code();
+            $cat             = new \stdClass();
+            $cat->name       = get_string('defaultfor', 'question', format_string($cm->name));
+            $cat->contextid  = $coursecontext->id;
+            $cat->info       = '';
+            $cat->infoformat = FORMAT_HTML;
+            $cat->parent     = $top->id;
+            $cat->sortorder  = 999;
+            $cat->stamp      = make_unique_id_code();
             $cat->id = $DB->insert_record('question_categories', $cat);
             $category = $cat;
         }
