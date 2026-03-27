@@ -234,8 +234,8 @@ export async function importFromMoodle(
           if (node) node.data = { ...node.data, content: page.content };
         }
       }
-    } catch {
-      // Non-fatal: pages import without content
+    } catch (err) {
+      console.error('[import] getPageContent failed:', (err as Error).message);
     }
   }
 
@@ -246,8 +246,8 @@ export async function importFromMoodle(
         const chapters = await getBookChapters(config, cmid);
         const node = nodeMap.get(nodeId);
         if (node) node.data = { ...node.data, chapters };
-      } catch {
-        // Non-fatal: book imports without chapters
+      } catch (err) {
+        console.error(`[import] getBookChapters cmid=${cmid} failed:`, (err as Error).message);
       }
     }),
   );
@@ -302,8 +302,8 @@ export async function importFromMoodle(
         });
         const node = nodeMap.get(nodeId);
         if (node) node.data = { ...node.data, questions };
-      } catch {
-        // Non-fatal: quiz imports without questions
+      } catch (err) {
+        console.error(`[import] getQuizQuestions cmid=${cmid} failed:`, (err as Error).message);
       }
     }),
   );
