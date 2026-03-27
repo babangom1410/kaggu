@@ -93,6 +93,26 @@ $functions = [
         'ajax'          => false,
         'loginrequired' => true,
     ],
+
+    'local_kaggu_get_book_chapters' => [
+        'classname'     => 'local_kaggu\external',
+        'methodname'    => 'get_book_chapters',
+        'description'   => 'Get all chapters of a book resource (identified by cmid).',
+        'type'          => 'read',
+        'capabilities'  => 'mod/book:read',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
+
+    'local_kaggu_get_quiz_questions' => [
+        'classname'     => 'local_kaggu\external',
+        'methodname'    => 'get_quiz_questions',
+        'description'   => 'Get all questions of a quiz (identified by cmid).',
+        'type'          => 'read',
+        'capabilities'  => 'mod/quiz:view',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
 ];
 
 $services = [
@@ -105,6 +125,7 @@ $services = [
             'core_course_get_contents',
             'core_course_get_categories',
             'core_course_get_courses',
+            'mod_page_get_pages_by_courses',
         ]),
         'restrictedusers' => 0,
         'enabled'         => 1,

@@ -5,6 +5,9 @@ import {
   resolveCourse,
   computeChecksum,
   moodleModToNodeType,
+  getPageContent,
+  getBookChapters,
+  getQuizQuestions,
 } from './moodle.service';
 
 interface ImportedNode {
@@ -57,6 +60,11 @@ export async function importFromMoodle(
 
   const nodes: ImportedNode[] = [];
   const edges: ImportedEdge[] = [];
+
+  // Track modules needing content enrichment after structure is built
+  const pageModules:  Array<{ nodeId: string; cmid: number }> = [];
+  const bookModules:  Array<{ nodeId: string; cmid: number }> = [];
+  const quizModules:  Array<{ nodeId: string; cmid: number }> = [];
 
   // 3. Create the course node
   const courseNodeId = `course-root`;
@@ -176,9 +184,15 @@ export async function importFromMoodle(
           data = { ...data, url: mod.url ?? '' };
         } else if (subtype === 'page') {
           data = { ...data, content: '' };
+          pageModules.push({ nodeId: moduleNodeId, cmid: mod.id });
         } else if (subtype === 'book') {
-          data = { ...data, numbering: 1 };
+          data = { ...data, numbering: 1, chapters: [] };
+          bookModules.push({ nodeId: moduleNodeId, cmid: mod.id });
         }
+      }
+
+      if (type === 'activity' && subtype === 'quiz') {
+        quizModules.push({ nodeId: moduleNodeId, cmid: mod.id });
       }
 
       nodes.push({
@@ -205,7 +219,96 @@ export async function importFromMoodle(
     }
   }
 
-  // 6. Save mappings and update project
+  // 6. Enrich nodes with module content (page HTML, book chapters, quiz questions)
+  const nodeMap = new Map(nodes.map((n) => [n.id, n]));
+
+  // Page content — one batch call for the whole course
+  if (pageModules.length > 0) {
+    try {
+      const pages = await getPageContent(config, courseInfo.id);
+      const pageByCmid = new Map(pages.map((p) => [p.coursemodule, p]));
+      for (const { nodeId, cmid } of pageModules) {
+        const page = pageByCmid.get(cmid);
+        if (page) {
+          const node = nodeMap.get(nodeId);
+          if (node) node.data = { ...node.data, content: page.content };
+        }
+      }
+    } catch {
+      // Non-fatal: pages import without content
+    }
+  }
+
+  // Book chapters — one call per book
+  await Promise.all(
+    bookModules.map(async ({ nodeId, cmid }) => {
+      try {
+        const chapters = await getBookChapters(config, cmid);
+        const node = nodeMap.get(nodeId);
+        if (node) node.data = { ...node.data, chapters };
+      } catch {
+        // Non-fatal: book imports without chapters
+      }
+    }),
+  );
+
+  // Quiz questions — one call per quiz
+  await Promise.all(
+    quizModules.map(async ({ nodeId, cmid }) => {
+      try {
+        const rawQuestions = await getQuizQuestions(config, cmid);
+        // Convert to Kàggu QuizQuestion format
+        const questions = rawQuestions.map((q, idx) => {
+          const base = {
+            id: `imported-${cmid}-${idx}`,
+            type: q.type,
+            text: q.text,
+            points: q.points,
+            generalfeedback: q.generalfeedback,
+          };
+          switch (q.type) {
+            case 'multichoice':
+              return {
+                ...base,
+                single: q.single === 1,
+                answers: q.answers.map((a, ai) => ({
+                  id: `ans-${cmid}-${idx}-${ai}`,
+                  text: a.text,
+                  correct: a.correct === 1,
+                  feedback: a.feedback,
+                })),
+              };
+            case 'truefalse':
+              return {
+                ...base,
+                correct: q.correct === 1,
+                feedbackTrue: q.feedbacktrue,
+                feedbackFalse: q.feedbackfalse,
+              };
+            case 'shortanswer':
+              return {
+                ...base,
+                answers: q.answers.map((a, ai) => ({
+                  id: `ans-${cmid}-${idx}-${ai}`,
+                  text: a.text,
+                  feedback: a.feedback,
+                })),
+              };
+            case 'numerical':
+              return { ...base, answer: q.answer, tolerance: q.tolerance };
+            default:
+              return base;
+          }
+        });
+        const node = nodeMap.get(nodeId);
+        if (node) node.data = { ...node.data, questions };
+      } catch {
+        // Non-fatal: quiz imports without questions
+      }
+    }),
+  );
+
+  // 7. Save mappings and update project
   await Promise.all([
     supabase.from('moodle_mappings').delete().eq('project_id', projectId),
     supabase.from('moodle_mappings').upsert(mappingsToUpsert),

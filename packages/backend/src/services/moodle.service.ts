@@ -406,6 +406,79 @@ export async function createQuizContent(
   return moodleCall<{ created: number }>(config, 'local_kaggu_create_quiz_content', { cmid, questions });
 }
 
+// ─── Import content fetchers ──────────────────────────────────────────────────
+
+export interface MoodlePageContent {
+  coursemodule: number; // cmid
+  content: string;
+  contentformat: number;
+}
+
+export async function getPageContent(
+  config: MoodleConnectionConfig,
+  courseId: number,
+): Promise<MoodlePageContent[]> {
+  const result = await moodleCall<{ pages: MoodlePageContent[] }>(
+    config,
+    'mod_page_get_pages_by_courses',
+    { courseids: [courseId] },
+  );
+  return result.pages ?? [];
+}
+
+export interface BookChapter {
+  id: number;
+  title: string;
+  content: string;
+  contentformat: number;
+  pagenum: number;
+  subchapter: 0 | 1;
+}
+
+export async function getBookChapters(
+  config: MoodleConnectionConfig,
+  cmid: number,
+): Promise<BookChapter[]> {
+  const result = await moodleCall<{ chapters: BookChapter[] }>(
+    config,
+    'local_kaggu_get_book_chapters',
+    { cmid },
+  );
+  return result.chapters ?? [];
+}
+
+export interface ImportedQuizAnswer {
+  text: string;
+  correct: 0 | 1;
+  feedback: string;
+}
+
+export interface ImportedQuizQuestion {
+  type: 'multichoice' | 'truefalse' | 'shortanswer' | 'numerical';
+  text: string;
+  points: number;
+  generalfeedback: string;
+  single: 0 | 1;
+  answers: ImportedQuizAnswer[];
+  correct: 0 | 1;
+  feedbacktrue: string;
+  feedbackfalse: string;
+  answer: number;
+  tolerance: number;
+}
+
+export async function getQuizQuestions(
+  config: MoodleConnectionConfig,
+  cmid: number,
+): Promise<ImportedQuizQuestion[]> {
+  const result = await moodleCall<{ questions: ImportedQuizQuestion[] }>(
+    config,
+    'local_kaggu_get_quiz_questions',
+    { cmid },
+  );
+  return result.questions ?? [];
+}
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 export function computeChecksum(data: unknown): string {

@@ -1251,6 +1251,192 @@ class external extends \external_api {
         ]);
     }
 
+    // ─── get_book_chapters ───────────────────────────────────────────────────
+
+    public static function get_book_chapters_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'cmid' => new \external_value(PARAM_INT, 'Book course module ID'),
+        ]);
+    }
+
+    public static function get_book_chapters(int $cmid): array {
+        global $DB;
+
+        require_login();
+        $cm = get_coursemodule_from_id('book', $cmid, 0, false, MUST_EXIST);
+        $context = \context_module::instance($cm->id);
+        self::validate_context($context);
+        require_capability('mod/book:read', $context);
+
+        $chapters = $DB->get_records('book_chapters',
+            ['bookid' => $cm->instance, 'hidden' => 0],
+            'pagenum ASC'
+        );
+
+        $result = [];
+        foreach ($chapters as $chapter) {
+            $result[] = [
+                'id'            => (int)$chapter->id,
+                'title'         => (string)$chapter->title,
+                'content'       => (string)$chapter->content,
+                'contentformat' => (int)$chapter->contentformat,
+                'pagenum'       => (int)$chapter->pagenum,
+                'subchapter'    => (int)$chapter->subchapter,
+            ];
+        }
+
+        return ['chapters' => $result];
+    }
+
+    public static function get_book_chapters_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'chapters' => new \external_multiple_structure(
+                new \external_single_structure([
+                    'id'            => new \external_value(PARAM_INT,  'Chapter ID'),
+                    'title'         => new \external_value(PARAM_TEXT, 'Chapter title'),
+                    'content'       => new \external_value(PARAM_RAW,  'Chapter content HTML'),
+                    'contentformat' => new \external_value(PARAM_INT,  'Content format'),
+                    'pagenum'       => new \external_value(PARAM_INT,  'Page number'),
+                    'subchapter'    => new \external_value(PARAM_INT,  '1 if subchapter'),
+                ])
+            ),
+        ]);
+    }
+
+    // ─── get_quiz_questions ──────────────────────────────────────────────────
+
+    public static function get_quiz_questions_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'cmid' => new \external_value(PARAM_INT, 'Quiz course module ID'),
+        ]);
+    }
+
+    public static function get_quiz_questions(int $cmid): array {
+        global $DB;
+
+        require_login();
+        $cm = get_coursemodule_from_id('quiz', $cmid, 0, false, MUST_EXIST);
+        $context = \context_module::instance($cm->id);
+        self::validate_context($context);
+        require_capability('mod/quiz:view', $context);
+
+        $quizid = $cm->instance;
+        $slots  = $DB->get_records('quiz_slots', ['quizid' => $quizid], 'slot ASC');
+
+        $questions = [];
+        foreach ($slots as $slot) {
+            $refs = $DB->get_records('question_references', [
+                'component'    => 'mod_quiz',
+                'questionarea' => 'slot',
+                'itemid'       => $slot->id,
+            ]);
+            foreach ($refs as $ref) {
+                // Get the latest version of the question
+                $versions = $DB->get_records('question_versions',
+                    ['questionbankentryid' => $ref->questionbankentryid],
+                    'version DESC', '*', 0, 1
+                );
+                $ver = reset($versions);
+                if (!$ver) continue;
+
+                $q = $DB->get_record('question', ['id' => $ver->questionid]);
+                if (!$q) continue;
+
+                $qdata = [
+                    'type'            => $q->qtype,
+                    'text'            => $q->questiontext,
+                    'points'          => (float)$q->defaultmark,
+                    'generalfeedback' => (string)($q->generalfeedback ?? ''),
+                    // type-specific fields (empty defaults)
+                    'single'          => 1,
+                    'answers'         => [],
+                    'correct'         => 1,
+                    'feedbacktrue'    => '',
+                    'feedbackfalse'   => '',
+                    'answer'          => 0.0,
+                    'tolerance'       => 0.0,
+                ];
+
+                switch ($q->qtype) {
+                    case 'multichoice':
+                        $opts = $DB->get_record('qtype_multichoice_options', ['questionid' => $q->id]);
+                        $qdata['single'] = $opts ? (int)$opts->single : 1;
+                        $dbAnswers = $DB->get_records('question_answers', ['question' => $q->id]);
+                        foreach ($dbAnswers as $ans) {
+                            $qdata['answers'][] = [
+                                'text'     => (string)$ans->answer,
+                                'correct'  => $ans->fraction > 0 ? 1 : 0,
+                                'feedback' => (string)($ans->feedback ?? ''),
+                            ];
+                        }
+                        break;
+
+                    case 'truefalse':
+                        $tf = $DB->get_record('question_truefalse', ['question' => $q->id]);
+                        if ($tf) {
+                            $trueAns  = $DB->get_record('question_answers', ['id' => $tf->trueanswer]);
+                            $falseAns = $DB->get_record('question_answers', ['id' => $tf->falseanswer]);
+                            $qdata['correct']       = $trueAns && $trueAns->fraction > 0 ? 1 : 0;
+                            $qdata['feedbacktrue']  = (string)($trueAns->feedback  ?? '');
+                            $qdata['feedbackfalse'] = (string)($falseAns->feedback ?? '');
+                        }
+                        break;
+
+                    case 'shortanswer':
+                        $dbAnswers = $DB->get_records('question_answers', ['question' => $q->id]);
+                        foreach ($dbAnswers as $ans) {
+                            $qdata['answers'][] = [
+                                'text'     => (string)$ans->answer,
+                                'correct'  => $ans->fraction > 0 ? 1 : 0,
+                                'feedback' => (string)($ans->feedback ?? ''),
+                            ];
+                        }
+                        break;
+
+                    case 'numerical':
+                        $num = $DB->get_record('question_numerical', ['question' => $q->id]);
+                        if ($num) {
+                            $ans = $DB->get_record('question_answers', ['id' => $num->answer]);
+                            $qdata['answer']    = $ans ? (float)$ans->answer : 0.0;
+                            $qdata['tolerance'] = (float)$num->tolerance;
+                        }
+                        break;
+                }
+
+                $questions[] = $qdata;
+            }
+        }
+
+        return ['questions' => $questions];
+    }
+
+    public static function get_quiz_questions_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'questions' => new \external_multiple_structure(
+                new \external_single_structure([
+                    'type'            => new \external_value(PARAM_ALPHA, 'Question type'),
+                    'text'            => new \external_value(PARAM_RAW,   'Question text HTML'),
+                    'points'          => new \external_value(PARAM_FLOAT, 'Max mark'),
+                    'generalfeedback' => new \external_value(PARAM_RAW,   'General feedback'),
+                    'single'          => new \external_value(PARAM_INT,   '1=single answer (multichoice)', VALUE_DEFAULT, 1),
+                    'answers'         => new \external_multiple_structure(
+                        new \external_single_structure([
+                            'text'     => new \external_value(PARAM_RAW, 'Answer text'),
+                            'correct'  => new \external_value(PARAM_INT, '1=correct'),
+                            'feedback' => new \external_value(PARAM_RAW, 'Answer feedback', VALUE_DEFAULT, ''),
+                        ]),
+                        'Answers', VALUE_DEFAULT, []
+                    ),
+                    'correct'         => new \external_value(PARAM_INT,   'Correct for truefalse (1=true)', VALUE_DEFAULT, 1),
+                    'feedbacktrue'    => new \external_value(PARAM_RAW,   'Feedback when true',             VALUE_DEFAULT, ''),
+                    'feedbackfalse'   => new \external_value(PARAM_RAW,   'Feedback when false',            VALUE_DEFAULT, ''),
+                    'answer'          => new \external_value(PARAM_FLOAT, 'Numerical answer',               VALUE_DEFAULT, 0),
+                    'tolerance'       => new \external_value(PARAM_FLOAT, 'Numerical tolerance',            VALUE_DEFAULT, 0),
+                ])
+            ),
+        ]);
+    }
+
     // ─── search_courses ───────────────────────────────────────────────────────
 
     public static function search_courses_returns(): \external_single_structure {
