@@ -8,6 +8,8 @@ import {
   getPageContent,
   getBookChapters,
   getQuizQuestions,
+  getLessonPages,
+  getFeedbackItems,
 } from './moodle.service';
 
 interface ImportedNode {
@@ -62,9 +64,11 @@ export async function importFromMoodle(
   const edges: ImportedEdge[] = [];
 
   // Track modules needing content enrichment after structure is built
-  const pageModules:  Array<{ nodeId: string; cmid: number }> = [];
-  const bookModules:  Array<{ nodeId: string; cmid: number }> = [];
-  const quizModules:  Array<{ nodeId: string; cmid: number }> = [];
+  const pageModules:     Array<{ nodeId: string; cmid: number }> = [];
+  const bookModules:     Array<{ nodeId: string; cmid: number }> = [];
+  const quizModules:     Array<{ nodeId: string; cmid: number }> = [];
+  const lessonModules:   Array<{ nodeId: string; cmid: number }> = [];
+  const feedbackModules: Array<{ nodeId: string; cmid: number }> = [];
 
   // 3. Create the course node
   const courseNodeId = `course-root`;
@@ -174,7 +178,11 @@ export async function importFromMoodle(
         } else if (subtype === 'scorm') {
           data = { ...data, maxattempt: 0, grademethod: 1, whatgrade: 0, maxgrade: 100 };
         } else if (subtype === 'lesson') {
-          data = { ...data, maxattempts: 0, retake: false, review: false };
+          data = { ...data, maxattempts: 0, retake: false, review: false, pages: [] };
+          lessonModules.push({ nodeId: moduleNodeId, cmid: mod.id });
+        } else if (subtype === 'feedback') {
+          data = { ...data, anonymous: 1, multiple_submit: false, items: [] };
+          feedbackModules.push({ nodeId: moduleNodeId, cmid: mod.id });
         } else if (subtype === 'choice') {
           data = { ...data, allowupdate: true, showresults: 1 };
         }
@@ -300,6 +308,63 @@ export async function importFromMoodle(
         if (node) node.data = { ...node.data, questions };
       } catch (err) {
         console.error(`[import] getQuizQuestions cmid=${cmid} failed:`, (err as Error).message);
+      }
+    }),
+  );
+
+  // Lesson pages — one call per lesson
+  await Promise.all(
+    lessonModules.map(async ({ nodeId, cmid }) => {
+      try {
+        const QTYPE_MAP: Record<number, string> = { 20: 'content', 3: 'multichoice', 2: 'truefalse', 1: 'shortanswer' };
+        const rawPages = await getLessonPages(config, cmid);
+        const pages = rawPages.map((p, idx) => ({
+          id: `imported-lesson-${cmid}-${idx}`,
+          title:   p.title,
+          content: p.content,
+          type:    QTYPE_MAP[p.type] ?? 'content',
+          answers: p.answers.map((a, ai) => ({
+            id:       `ans-${cmid}-${idx}-${ai}`,
+            text:     a.text,
+            response: a.response,
+            correct:  a.correct === 1,
+            jumpto:   a.jumpto,
+          })),
+        }));
+        const node = nodeMap.get(nodeId);
+        if (node) node.data = { ...node.data, pages };
+      } catch (err) {
+        console.error(`[import] getLessonPages cmid=${cmid} failed:`, (err as Error).message);
+      }
+    }),
+  );
+
+  // Feedback items — one call per feedback
+  await Promise.all(
+    feedbackModules.map(async ({ nodeId, cmid }) => {
+      try {
+        const rawItems = await getFeedbackItems(config, cmid);
+        const items = rawItems.map((item, idx) => {
+          const base: Record<string, unknown> = {
+            id:       `imported-feedback-${cmid}-${idx}`,
+            type:     item.type,
+            name:     item.name,
+            required: item.required === 1,
+          };
+          // Parse presentation back to options array
+          if ((item.type === 'multichoice' || item.type === 'multichoice_rated') && item.presentation) {
+            base.options = item.presentation.split('|').map((o) => o.replace(/^[rc]>>>>/, ''));
+          } else if (item.type === 'numeric' && item.presentation) {
+            const [min, max] = item.presentation.split('|');
+            base.min = Number(min ?? 0);
+            base.max = Number(max ?? 100);
+          }
+          return base;
+        });
+        const node = nodeMap.get(nodeId);
+        if (node) node.data = { ...node.data, items };
+      } catch (err) {
+        console.error(`[import] getFeedbackItems cmid=${cmid} failed:`, (err as Error).message);
       }
     }),
   );

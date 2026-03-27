@@ -9,7 +9,11 @@ import {
   updateModule,
   updateBookChapters,
   createQuizContent,
+  updateLessonPages,
+  updateFeedbackItems,
   type QuizQuestionInput,
+  type LessonPageData,
+  type FeedbackItemData,
   computeChecksum,
   dateToTimestamp,
   uploadFileToDraft,
@@ -174,6 +178,51 @@ async function syncBookChapters(
   await updateBookChapters(config, cmid, chapters);
 }
 
+async function syncLessonPages(
+  config: MoodleConnectionConfig,
+  cmid: number,
+  pagesData: unknown,
+): Promise<void> {
+  const raw = Array.isArray(pagesData) ? pagesData : [];
+  const QTYPE: Record<string, number> = { content: 20, multichoice: 3, truefalse: 2, shortanswer: 1 };
+  const pages: LessonPageData[] = (raw as Array<Record<string, unknown>>).map((p) => ({
+    title:   String(p.title   || ''),
+    content: String(p.content || ''),
+    type:    QTYPE[String(p.type || 'content')] ?? 20,
+    answers: (Array.isArray(p.answers) ? p.answers as Array<Record<string, unknown>> : []).map((a) => ({
+      text:     String(a.text     || ''),
+      response: String(a.response || ''),
+      correct:  a.correct ? 1 : 0 as 0 | 1,
+      jumpto:   Number(a.jumpto ?? -1),
+    })),
+  }));
+  await updateLessonPages(config, cmid, pages);
+}
+
+async function syncFeedbackItems(
+  config: MoodleConnectionConfig,
+  cmid: number,
+  itemsData: unknown,
+): Promise<void> {
+  const raw = Array.isArray(itemsData) ? itemsData : [];
+  const items: FeedbackItemData[] = (raw as Array<Record<string, unknown>>).map((item) => {
+    const type = String(item.type || 'text');
+    let presentation = String(item.presentation || '');
+    if ((type === 'multichoice' || type === 'multichoice_rated') && Array.isArray(item.options)) {
+      presentation = (item.options as string[]).map((o) => `r>>>>${ o}`).join('|');
+    } else if (type === 'numeric') {
+      presentation = `${item.min ?? 0}|${item.max ?? 100}`;
+    }
+    return {
+      type,
+      name:         String(item.name || ''),
+      presentation,
+      required:     item.required ? 1 : 0 as 0 | 1,
+    };
+  });
+  await updateFeedbackItems(config, cmid, items);
+}
+
 async function syncQuizQuestions(
   config: MoodleConnectionConfig,
   cmid: number,
@@ -311,6 +360,15 @@ function buildModuleOptions(node: BackendNode, fileItemIds?: Map<string, number>
         options: {
           allowupdate: data.allowupdate !== false ? 1 : 0,
           showresults: Number(data.showresults ?? 1),
+        },
+      };
+    }
+    if (subtype === 'feedback') {
+      return {
+        moduletype: 'feedback',
+        options: {
+          anonymous: Number(data.anonymous ?? 1),
+          multiple_submit: data.multiple_submit ? 1 : 0,
         },
       };
     }
@@ -626,6 +684,12 @@ export async function exportProject(
             if (moduleOpts.moduletype === 'quiz') {
               await syncQuizQuestions(config, existingModule.moodle_id, moduleNode.data.questions);
             }
+            if (moduleOpts.moduletype === 'lesson') {
+              await syncLessonPages(config, existingModule.moodle_id, moduleNode.data.pages);
+            }
+            if (moduleOpts.moduletype === 'feedback') {
+              await syncFeedbackItems(config, existingModule.moodle_id, moduleNode.data.items);
+            }
             report.updated++;
           } else {
             // Checksum matches (content unchanged) — still sync completion and
@@ -643,6 +707,12 @@ export async function exportProject(
             }
             if (moduleOpts.moduletype === 'quiz') {
               await syncQuizQuestions(config, existingModule.moodle_id, moduleNode.data.questions);
+            }
+            if (moduleOpts.moduletype === 'lesson') {
+              await syncLessonPages(config, existingModule.moodle_id, moduleNode.data.pages);
+            }
+            if (moduleOpts.moduletype === 'feedback') {
+              await syncFeedbackItems(config, existingModule.moodle_id, moduleNode.data.items);
             }
             report.skipped++;
           }
@@ -664,6 +734,12 @@ export async function exportProject(
           }
           if (moduleOpts.moduletype === 'quiz') {
             await syncQuizQuestions(config, result.cmid, moduleNode.data.questions);
+          }
+          if (moduleOpts.moduletype === 'lesson') {
+            await syncLessonPages(config, result.cmid, moduleNode.data.pages);
+          }
+          if (moduleOpts.moduletype === 'feedback') {
+            await syncFeedbackItems(config, result.cmid, moduleNode.data.items);
           }
           report.created++;
           await upsertMapping(moduleNode.id, 'module', result.cmid, moduleChecksum);

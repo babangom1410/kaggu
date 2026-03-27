@@ -81,7 +81,6 @@ export type ResourceNodeData = FileResourceData | UrlResourceData | PageResource
 
 // --- Activity nodes ---
 
-export type ActivitySubtype = 'assign' | 'quiz' | 'forum' | 'h5p' | 'glossary' | 'scorm' | 'lesson' | 'choice';
 
 export interface AssignActivityData extends CompletionSettings, RestrictionsSettings {
   subtype: 'assign';
@@ -204,6 +203,26 @@ export interface ScormActivityData extends CompletionSettings, RestrictionsSetti
   visible: boolean;
 }
 
+// --- Lesson page types ---
+
+export type LessonPageType = 'content' | 'multichoice' | 'truefalse' | 'shortanswer';
+
+export interface LessonPageAnswer {
+  id: string;
+  text: string;
+  response?: string;   // feedback shown after selecting this answer
+  correct: boolean;
+  jumpto: number;      // -1=next page, -2=end of lesson, 0=this page
+}
+
+export interface LessonPage {
+  id: string;          // client-side UUID
+  title: string;
+  content: string;     // HTML body
+  type: LessonPageType;
+  answers?: LessonPageAnswer[];
+}
+
 export interface LessonActivityData extends CompletionSettings, RestrictionsSettings {
   subtype: 'lesson';
   name: string;
@@ -212,6 +231,7 @@ export interface LessonActivityData extends CompletionSettings, RestrictionsSett
   timelimit?: number;        // seconds, 0=no limit
   retake?: boolean;
   review?: boolean;
+  pages?: LessonPage[];
   visible: boolean;
 }
 
@@ -224,7 +244,41 @@ export interface ChoiceActivityData extends CompletionSettings, RestrictionsSett
   visible: boolean;
 }
 
-export type ActivityNodeData = AssignActivityData | QuizActivityData | ForumActivityData | H5PActivityData | GlossaryActivityData | ScormActivityData | LessonActivityData | ChoiceActivityData;
+// --- Feedback item types ---
+
+export type FeedbackItemType =
+  | 'label'
+  | 'info'
+  | 'text'
+  | 'textarea'
+  | 'multichoice'
+  | 'multichoice_rated'
+  | 'numeric'
+  | 'pagebreak';
+
+export interface FeedbackItem {
+  id: string;          // client-side UUID
+  type: FeedbackItemType;
+  name: string;        // question text
+  required?: boolean;
+  options?: string[];  // for multichoice/multichoice_rated
+  min?: number;        // for numeric
+  max?: number;        // for numeric
+}
+
+export interface FeedbackActivityData extends CompletionSettings, RestrictionsSettings {
+  subtype: 'feedback';
+  name: string;
+  description?: string;
+  anonymous?: 0 | 1 | 2; // 0=public, 1=anonymous, 2=auto
+  multiple_submit?: boolean;
+  items?: FeedbackItem[];
+  visible: boolean;
+}
+
+export type ActivitySubtype = 'assign' | 'quiz' | 'forum' | 'h5p' | 'glossary' | 'scorm' | 'lesson' | 'choice' | 'feedback';
+
+export type ActivityNodeData = AssignActivityData | QuizActivityData | ForumActivityData | H5PActivityData | GlossaryActivityData | ScormActivityData | LessonActivityData | ChoiceActivityData | FeedbackActivityData;
 
 // --- Union types ---
 

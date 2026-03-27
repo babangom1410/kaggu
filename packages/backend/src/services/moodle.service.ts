@@ -406,6 +406,67 @@ export async function createQuizContent(
   return moodleCall<{ created: number }>(config, 'local_kaggu_create_quiz_content', { cmid, questions });
 }
 
+// ─── Lesson pages ─────────────────────────────────────────────────────────────
+
+export interface LessonPageAnswer {
+  text: string;
+  response: string;
+  correct: 0 | 1;
+  jumpto: number;
+}
+
+export interface LessonPageData {
+  title: string;
+  content: string;
+  type: number; // 20=content, 3=multichoice, 2=truefalse, 1=shortanswer
+  answers: LessonPageAnswer[];
+}
+
+export async function getLessonPages(
+  config: MoodleConnectionConfig,
+  cmid: number,
+): Promise<LessonPageData[]> {
+  const result = await moodleCall<{ pages: LessonPageData[] }>(
+    config, 'local_kaggu_get_lesson_pages', { cmid },
+  );
+  return result.pages ?? [];
+}
+
+export async function updateLessonPages(
+  config: MoodleConnectionConfig,
+  cmid: number,
+  pages: LessonPageData[],
+): Promise<void> {
+  await moodleCall(config, 'local_kaggu_update_lesson_pages', { cmid, pages });
+}
+
+// ─── Feedback items ────────────────────────────────────────────────────────────
+
+export interface FeedbackItemData {
+  type: string;
+  name: string;
+  presentation: string;
+  required: 0 | 1;
+}
+
+export async function getFeedbackItems(
+  config: MoodleConnectionConfig,
+  cmid: number,
+): Promise<FeedbackItemData[]> {
+  const result = await moodleCall<{ items: FeedbackItemData[] }>(
+    config, 'local_kaggu_get_feedback_items', { cmid },
+  );
+  return result.items ?? [];
+}
+
+export async function updateFeedbackItems(
+  config: MoodleConnectionConfig,
+  cmid: number,
+  items: FeedbackItemData[],
+): Promise<void> {
+  await moodleCall(config, 'local_kaggu_update_feedback_items', { cmid, items });
+}
+
 // ─── Import content fetchers ──────────────────────────────────────────────────
 
 export async function getPageContent(
@@ -505,6 +566,7 @@ export function moodleModToNodeType(modname: string): {
     scorm: 'scorm',
     lesson: 'lesson',
     choice: 'choice',
+    feedback: 'feedback',
   };
   if (resources[modname]) return { type: 'resource', subtype: resources[modname] };
   if (activities[modname]) return { type: 'activity', subtype: activities[modname] };

@@ -123,6 +123,46 @@ $functions = [
         'ajax'          => false,
         'loginrequired' => true,
     ],
+
+    'local_kaggu_get_lesson_pages' => [
+        'classname'     => 'local_kaggu\external',
+        'methodname'    => 'get_lesson_pages',
+        'description'   => 'Get all pages of a lesson (identified by cmid).',
+        'type'          => 'read',
+        'capabilities'  => 'mod/lesson:view',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
+
+    'local_kaggu_update_lesson_pages' => [
+        'classname'     => 'local_kaggu\external',
+        'methodname'    => 'update_lesson_pages',
+        'description'   => 'Replace all pages of a lesson (identified by cmid).',
+        'type'          => 'write',
+        'capabilities'  => 'moodle/course:manageactivities',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
+
+    'local_kaggu_get_feedback_items' => [
+        'classname'     => 'local_kaggu\external',
+        'methodname'    => 'get_feedback_items',
+        'description'   => 'Get all items of a feedback activity (identified by cmid).',
+        'type'          => 'read',
+        'capabilities'  => 'mod/feedback:view',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
+
+    'local_kaggu_update_feedback_items' => [
+        'classname'     => 'local_kaggu\external',
+        'methodname'    => 'update_feedback_items',
+        'description'   => 'Replace all items of a feedback activity (identified by cmid).',
+        'type'          => 'write',
+        'capabilities'  => 'moodle/course:manageactivities',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
 ];
 
 $services = [

@@ -3,7 +3,23 @@ import { useMindmapStore } from '@/stores/mindmap-store';
 import { AiAssistant } from '@/components/mindmap/AiAssistant';
 import { PageEditorModal } from '@/components/mindmap/PageEditorModal';
 import { QuizEditorModal } from '@/components/mindmap/QuizEditorModal';
+import { LessonEditorModal } from '@/components/mindmap/LessonEditorModal';
+import { FeedbackEditorModal } from '@/components/mindmap/FeedbackEditorModal';
 import type { Restriction, MindmapNode, QuizQuestion } from '@/types/mindmap.types';
+
+const UNSUPPORTED_CONTENT_SUBTYPES = new Set(['assign', 'h5p', 'glossary', 'scorm', 'choice', 'file']);
+
+function UnsupportedContentBanner() {
+  return (
+    <div className="flex items-start gap-2 px-3 py-2.5 rounded-lg bg-slate-800/60 border border-slate-700/50">
+      <span className="text-slate-500 text-base leading-none mt-0.5">ℹ️</span>
+      <p className="text-xs text-slate-500 leading-relaxed">
+        Le contenu de ce module n'est pas encore pris en charge dans Kàggu.
+        Les paramètres de base sont exportés vers Moodle.
+      </p>
+    </div>
+  );
+}
 
 const TYPE_META: Record<string, { label: string; icon: string; color: string; bg: string }> = {
   course: { label: 'Cours', icon: '🎓', color: 'text-blue-400', bg: 'bg-blue-500/10' },
@@ -313,6 +329,8 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
   const [pageEditorOpen, setPageEditorOpen] = useState<'description' | 'content' | null>(null);
   const [chapterEditorOpen, setChapterEditorOpen] = useState<number | null>(null);
   const [quizEditorOpen, setQuizEditorOpen] = useState(false);
+  const [lessonEditorOpen, setLessonEditorOpen] = useState(false);
+  const [feedbackEditorOpen, setFeedbackEditorOpen] = useState(false);
   const node = nodes.find((n) => n.id === nodeId);
 
   if (!node) return null;
@@ -354,6 +372,22 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
         currentNodeId={nodeId}
         onUpdate={update}
         onClose={() => setQuizEditorOpen(false)}
+      />
+    )}
+    {lessonEditorOpen && data.subtype === 'lesson' && (
+      <LessonEditorModal
+        lessonName={String(data.name ?? 'Leçon')}
+        data={data}
+        onUpdate={update}
+        onClose={() => setLessonEditorOpen(false)}
+      />
+    )}
+    {feedbackEditorOpen && data.subtype === 'feedback' && (
+      <FeedbackEditorModal
+        feedbackName={String(data.name ?? 'Feedback')}
+        data={data}
+        onUpdate={update}
+        onClose={() => setFeedbackEditorOpen(false)}
       />
     )}
     {pageEditorOpen === 'description' && (
@@ -712,6 +746,7 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                     <option value="both">Les deux</option>
                   </select>
                 </Field>
+                <UnsupportedContentBanner />
               </>
             )}
             {data.subtype === 'quiz' && (() => {
@@ -779,6 +814,7 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                     <option value={3}>Dernière tentative</option>
                   </select>
                 </Field>
+                <UnsupportedContentBanner />
               </>
             )}
             {data.subtype === 'glossary' && (
@@ -802,6 +838,7 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                   onChange={(v) => update('allowcomments', v)}
                   label="Autoriser les commentaires"
                 />
+                <UnsupportedContentBanner />
               </>
             )}
             {data.subtype === 'scorm' && (
@@ -824,6 +861,7 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                     <option value={1}>Tentative la plus haute</option>
                   </select>
                 </Field>
+                <UnsupportedContentBanner />
               </>
             )}
             {data.subtype === 'lesson' && (
@@ -845,6 +883,24 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                   onChange={(v) => update('review', v)}
                   label="Mode révision"
                 />
+                {(() => {
+                  const pages = (data.pages ?? []) as Array<unknown>;
+                  return (
+                    <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700">
+                      <div className="text-xs font-semibold text-slate-300">
+                        {pages.length > 0 ? `${pages.length} page${pages.length > 1 ? 's' : ''}` : 'Aucune page'}
+                      </div>
+                      <button
+                        onClick={() => setLessonEditorOpen(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+                                   bg-violet-500/15 text-violet-400 border border-violet-500/20
+                                   hover:bg-violet-500/25 hover:text-violet-300 transition-colors"
+                      >
+                        📝 Ouvrir l'éditeur
+                      </button>
+                    </div>
+                  );
+                })()}
               </>
             )}
             {data.subtype === 'choice' && (
@@ -867,6 +923,39 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                   onChange={(v) => update('allowupdate', v)}
                   label="Autoriser la modification du choix"
                 />
+                <UnsupportedContentBanner />
+              </>
+            )}
+            {data.subtype === 'feedback' && (
+              <>
+                <Toggle
+                  checked={Number(data.anonymous ?? 1) === 1}
+                  onChange={(v) => update('anonymous', v ? 1 : 0)}
+                  label="Réponses anonymes"
+                />
+                <Toggle
+                  checked={Boolean(data.multiple_submit)}
+                  onChange={(v) => update('multiple_submit', v)}
+                  label="Permettre plusieurs soumissions"
+                />
+                {(() => {
+                  const items = (data.items ?? []) as Array<unknown>;
+                  return (
+                    <div className="flex items-center justify-between px-3 py-2.5 rounded-xl bg-slate-800 border border-slate-700">
+                      <div className="text-xs font-semibold text-slate-300">
+                        {items.length > 0 ? `${items.length} question${items.length > 1 ? 's' : ''}` : 'Aucune question'}
+                      </div>
+                      <button
+                        onClick={() => setFeedbackEditorOpen(true)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+                                   bg-violet-500/15 text-violet-400 border border-violet-500/20
+                                   hover:bg-violet-500/25 hover:text-violet-300 transition-colors"
+                      >
+                        📝 Ouvrir l'éditeur
+                      </button>
+                    </div>
+                  );
+                })()}
               </>
             )}
             <Toggle

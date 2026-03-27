@@ -1481,6 +1481,268 @@ class external extends \external_api {
         ]);
     }
 
+    // ─── get_lesson_pages ────────────────────────────────────────────────────
+
+    public static function get_lesson_pages_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'cmid' => new \external_value(PARAM_INT, 'Lesson course module ID'),
+        ]);
+    }
+
+    public static function get_lesson_pages(int $cmid): array {
+        global $DB;
+
+        require_login();
+        $cm = get_coursemodule_from_id('lesson', $cmid, 0, false, IGNORE_MISSING);
+        if (!$cm) return ['pages' => []];
+        $context = \context_module::instance($cm->id);
+        self::validate_context($context);
+        require_capability('mod/lesson:view', $context);
+
+        $pages = $DB->get_records('lesson_pages', ['lessonid' => $cm->instance], 'id ASC');
+        $result = [];
+        foreach ($pages as $page) {
+            $answers = $DB->get_records('lesson_answers', ['pageid' => $page->id], 'id ASC');
+            $ansArr = [];
+            foreach ($answers as $ans) {
+                $ansArr[] = [
+                    'text'     => (string)($ans->answer   ?? ''),
+                    'response' => (string)($ans->response ?? ''),
+                    'correct'  => $ans->grade > 0 ? 1 : 0,
+                    'jumpto'   => (int)$ans->jumpto,
+                ];
+            }
+            $result[] = [
+                'title'   => (string)$page->title,
+                'content' => (string)$page->contents,
+                'type'    => (int)$page->qtype,
+                'answers' => $ansArr,
+            ];
+        }
+        return ['pages' => $result];
+    }
+
+    public static function get_lesson_pages_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'pages' => new \external_multiple_structure(
+                new \external_single_structure([
+                    'title'   => new \external_value(PARAM_TEXT, 'Page title'),
+                    'content' => new \external_value(PARAM_RAW,  'Page content HTML'),
+                    'type'    => new \external_value(PARAM_INT,  'Page type'),
+                    'answers' => new \external_multiple_structure(
+                        new \external_single_structure([
+                            'text'     => new \external_value(PARAM_RAW, 'Answer text'),
+                            'response' => new \external_value(PARAM_RAW, 'Response feedback', VALUE_DEFAULT, ''),
+                            'correct'  => new \external_value(PARAM_INT, '1=correct'),
+                            'jumpto'   => new \external_value(PARAM_INT, 'Jump to', VALUE_DEFAULT, -1),
+                        ]), 'Answers', VALUE_DEFAULT, []
+                    ),
+                ])
+            ),
+        ]);
+    }
+
+    // ─── update_lesson_pages ─────────────────────────────────────────────────
+
+    public static function update_lesson_pages_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'cmid'  => new \external_value(PARAM_INT, 'Lesson course module ID'),
+            'pages' => new \external_multiple_structure(
+                new \external_single_structure([
+                    'title'   => new \external_value(PARAM_TEXT, 'Page title'),
+                    'content' => new \external_value(PARAM_RAW,  'Page content HTML'),
+                    'type'    => new \external_value(PARAM_INT,  'Page type', VALUE_DEFAULT, 20),
+                    'answers' => new \external_multiple_structure(
+                        new \external_single_structure([
+                            'text'     => new \external_value(PARAM_RAW, 'Answer text'),
+                            'response' => new \external_value(PARAM_RAW, 'Response feedback', VALUE_DEFAULT, ''),
+                            'correct'  => new \external_value(PARAM_INT, '1=correct',         VALUE_DEFAULT, 0),
+                            'jumpto'   => new \external_value(PARAM_INT, 'Jump to page',      VALUE_DEFAULT, -1),
+                        ]), 'Answers', VALUE_DEFAULT, []
+                    ),
+                ])
+            ),
+        ]);
+    }
+
+    public static function update_lesson_pages(int $cmid, array $pages): array {
+        global $DB;
+
+        $params = self::validate_parameters(self::update_lesson_pages_parameters(), [
+            'cmid' => $cmid, 'pages' => $pages,
+        ]);
+
+        require_login();
+        $cm = get_coursemodule_from_id('lesson', $params['cmid'], 0, false, MUST_EXIST);
+        $context = \context_module::instance($cm->id);
+        self::validate_context($context);
+        require_capability('moodle/course:manageactivities', $context);
+
+        $lessonid = $cm->instance;
+        $existing = $DB->get_records('lesson_pages', ['lessonid' => $lessonid]);
+        foreach ($existing as $ep) {
+            $DB->delete_records('lesson_answers', ['pageid' => $ep->id]);
+        }
+        $DB->delete_records('lesson_pages', ['lessonid' => $lessonid]);
+
+        $now = time();
+        $prevPageId = 0;
+        $count = 0;
+
+        foreach ($params['pages'] as $pageData) {
+            $page                 = new \stdClass();
+            $page->lessonid       = $lessonid;
+            $page->prevpageid     = $prevPageId;
+            $page->nextpageid     = 0;
+            $page->qtype          = (int)($pageData['type'] ?? 20);
+            $page->qoption        = 0;
+            $page->layout         = 1;
+            $page->display        = 1;
+            $page->timecreated    = $now;
+            $page->timemodified   = $now;
+            $page->title          = $pageData['title'];
+            $page->contents       = $pageData['content'];
+            $page->contentsformat = FORMAT_HTML;
+            $pageId = $DB->insert_record('lesson_pages', $page);
+
+            if ($prevPageId > 0) {
+                $DB->set_field('lesson_pages', 'nextpageid', $pageId, ['id' => $prevPageId]);
+            }
+            $prevPageId = $pageId;
+            $count++;
+
+            foreach ($pageData['answers'] as $ansData) {
+                $ans                 = new \stdClass();
+                $ans->lessonid       = $lessonid;
+                $ans->pageid         = $pageId;
+                $ans->jumpto         = (int)($ansData['jumpto'] ?? -1);
+                $ans->grade          = (int)($ansData['correct'] ?? 0);
+                $ans->score          = 0;
+                $ans->flags          = 0;
+                $ans->timecreated    = $now;
+                $ans->timemodified   = $now;
+                $ans->answer         = $ansData['text'];
+                $ans->answerformat   = FORMAT_HTML;
+                $ans->response       = $ansData['response'] ?? '';
+                $ans->responseformat = FORMAT_HTML;
+                $DB->insert_record('lesson_answers', $ans);
+            }
+        }
+
+        rebuild_course_cache($cm->course, true);
+        return ['updated' => $count];
+    }
+
+    public static function update_lesson_pages_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'updated' => new \external_value(PARAM_INT, 'Number of pages saved'),
+        ]);
+    }
+
+    // ─── get_feedback_items ──────────────────────────────────────────────────
+
+    public static function get_feedback_items_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'cmid' => new \external_value(PARAM_INT, 'Feedback course module ID'),
+        ]);
+    }
+
+    public static function get_feedback_items(int $cmid): array {
+        global $DB;
+
+        require_login();
+        $cm = get_coursemodule_from_id('feedback', $cmid, 0, false, IGNORE_MISSING);
+        if (!$cm) return ['items' => []];
+        $context = \context_module::instance($cm->id);
+        self::validate_context($context);
+        require_capability('mod/feedback:view', $context);
+
+        $items = $DB->get_records('feedback_item', ['feedback' => $cm->instance], 'position ASC');
+        $result = [];
+        foreach ($items as $item) {
+            $result[] = [
+                'type'         => (string)$item->typ,
+                'name'         => (string)$item->name,
+                'presentation' => (string)($item->presentation ?? ''),
+                'required'     => (int)$item->required,
+                'position'     => (int)$item->position,
+            ];
+        }
+        return ['items' => $result];
+    }
+
+    public static function get_feedback_items_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'items' => new \external_multiple_structure(
+                new \external_single_structure([
+                    'type'         => new \external_value(PARAM_ALPHA, 'Item type'),
+                    'name'         => new \external_value(PARAM_RAW,   'Question text'),
+                    'presentation' => new \external_value(PARAM_RAW,   'Options/presentation'),
+                    'required'     => new \external_value(PARAM_INT,   '1=required'),
+                    'position'     => new \external_value(PARAM_INT,   'Position'),
+                ])
+            ),
+        ]);
+    }
+
+    // ─── update_feedback_items ───────────────────────────────────────────────
+
+    public static function update_feedback_items_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'cmid'  => new \external_value(PARAM_INT, 'Feedback course module ID'),
+            'items' => new \external_multiple_structure(
+                new \external_single_structure([
+                    'type'         => new \external_value(PARAM_ALPHA, 'Item type'),
+                    'name'         => new \external_value(PARAM_RAW,   'Question text'),
+                    'presentation' => new \external_value(PARAM_RAW,   'Options/presentation', VALUE_DEFAULT, ''),
+                    'required'     => new \external_value(PARAM_INT,   '1=required',           VALUE_DEFAULT, 0),
+                ])
+            ),
+        ]);
+    }
+
+    public static function update_feedback_items(int $cmid, array $items): array {
+        global $DB;
+
+        $params = self::validate_parameters(self::update_feedback_items_parameters(), [
+            'cmid' => $cmid, 'items' => $items,
+        ]);
+
+        require_login();
+        $cm = get_coursemodule_from_id('feedback', $params['cmid'], 0, false, MUST_EXIST);
+        $context = \context_module::instance($cm->id);
+        self::validate_context($context);
+        require_capability('moodle/course:manageactivities', $context);
+
+        $DB->delete_records('feedback_item', ['feedback' => $cm->instance]);
+
+        $staticTypes = ['label', 'pagebreak', 'info'];
+        foreach ($params['items'] as $idx => $itemData) {
+            $item               = new \stdClass();
+            $item->feedback     = $cm->instance;
+            $item->template     = 0;
+            $item->name         = $itemData['name'];
+            $item->label        = '';
+            $item->presentation = $itemData['presentation'] ?? '';
+            $item->typ          = $itemData['type'];
+            $item->hasvalue     = in_array($itemData['type'], $staticTypes) ? 0 : 1;
+            $item->position     = $idx + 1;
+            $item->required     = (int)($itemData['required'] ?? 0);
+            $item->dependitem   = 0;
+            $item->dependvalue  = '';
+            $DB->insert_record('feedback_item', $item);
+        }
+
+        rebuild_course_cache($cm->course, true);
+        return ['updated' => count($params['items'])];
+    }
+
+    public static function update_feedback_items_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'updated' => new \external_value(PARAM_INT, 'Number of items saved'),
+        ]);
+    }
+
     // ─── search_courses ───────────────────────────────────────────────────────
 
     public static function search_courses_returns(): \external_single_structure {
