@@ -94,6 +94,16 @@ $functions = [
         'loginrequired' => true,
     ],
 
+    'local_kaggu_get_page_content' => [
+        'classname'     => 'local_kaggu\external',
+        'methodname'    => 'get_page_content',
+        'description'   => 'Get the content of a page resource (identified by cmid).',
+        'type'          => 'read',
+        'capabilities'  => 'mod/page:view',
+        'ajax'          => false,
+        'loginrequired' => true,
+    ],
+
     'local_kaggu_get_book_chapters' => [
         'classname'     => 'local_kaggu\external',
         'methodname'    => 'get_book_chapters',
@@ -125,7 +135,6 @@ $services = [
             'core_course_get_contents',
             'core_course_get_categories',
             'core_course_get_courses',
-            'mod_page_get_pages_by_courses',
         ]),
         'restrictedusers' => 0,
         'enabled'         => 1,

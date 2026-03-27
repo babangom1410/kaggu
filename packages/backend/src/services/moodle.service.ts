@@ -408,22 +408,15 @@ export async function createQuizContent(
 
 // ─── Import content fetchers ──────────────────────────────────────────────────
 
-export interface MoodlePageContent {
-  coursemodule: number; // cmid
-  content: string;
-  contentformat: number;
-}
-
 export async function getPageContent(
   config: MoodleConnectionConfig,
-  courseId: number,
-): Promise<MoodlePageContent[]> {
-  const result = await moodleCall<{ pages: MoodlePageContent[] }>(
+  cmid: number,
+): Promise<{ content: string; contentformat: number }> {
+  return moodleCall<{ content: string; contentformat: number }>(
     config,
-    'mod_page_get_pages_by_courses',
-    { courseids: [courseId] },
+    'local_kaggu_get_page_content',
+    { cmid },
   );
-  return result.pages ?? [];
 }
 
 export interface BookChapter {

@@ -1251,6 +1251,44 @@ class external extends \external_api {
         ]);
     }
 
+    // ─── get_page_content ────────────────────────────────────────────────────
+
+    public static function get_page_content_parameters(): \external_function_parameters {
+        return new \external_function_parameters([
+            'cmid' => new \external_value(PARAM_INT, 'Page course module ID'),
+        ]);
+    }
+
+    public static function get_page_content(int $cmid): array {
+        global $DB;
+
+        require_login();
+        $cm = get_coursemodule_from_id('page', $cmid, 0, false, IGNORE_MISSING);
+        if (!$cm) {
+            return ['content' => '', 'contentformat' => FORMAT_HTML];
+        }
+        $context = \context_module::instance($cm->id);
+        self::validate_context($context);
+        require_capability('mod/page:view', $context);
+
+        $page = $DB->get_record('page', ['id' => $cm->instance]);
+        if (!$page) {
+            return ['content' => '', 'contentformat' => FORMAT_HTML];
+        }
+
+        return [
+            'content'       => (string)$page->content,
+            'contentformat' => (int)$page->contentformat,
+        ];
+    }
+
+    public static function get_page_content_returns(): \external_single_structure {
+        return new \external_single_structure([
+            'content'       => new \external_value(PARAM_RAW, 'Page content HTML'),
+            'contentformat' => new \external_value(PARAM_INT, 'Content format'),
+        ]);
+    }
+
     // ─── get_book_chapters ───────────────────────────────────────────────────
 
     public static function get_book_chapters_parameters(): \external_function_parameters {

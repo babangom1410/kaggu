@@ -222,22 +222,18 @@ export async function importFromMoodle(
   // 6. Enrich nodes with module content (page HTML, book chapters, quiz questions)
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
 
-  // Page content — one batch call for the whole course
-  if (pageModules.length > 0) {
-    try {
-      const pages = await getPageContent(config, courseInfo.id);
-      const pageByCmid = new Map(pages.map((p) => [p.coursemodule, p]));
-      for (const { nodeId, cmid } of pageModules) {
-        const page = pageByCmid.get(cmid);
-        if (page) {
-          const node = nodeMap.get(nodeId);
-          if (node) node.data = { ...node.data, content: page.content };
-        }
+  // Page content — one call per page
+  await Promise.all(
+    pageModules.map(async ({ nodeId, cmid }) => {
+      try {
+        const page = await getPageContent(config, cmid);
+        const node = nodeMap.get(nodeId);
+        if (node) node.data = { ...node.data, content: page.content };
+      } catch (err) {
+        console.error(`[import] getPageContent cmid=${cmid} failed:`, (err as Error).message);
       }
-    } catch (err) {
-      console.error('[import] getPageContent failed:', (err as Error).message);
-    }
-  }
+    }),
+  );
 
   // Book chapters — one call per book
   await Promise.all(
