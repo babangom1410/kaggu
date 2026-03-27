@@ -1263,7 +1263,10 @@ class external extends \external_api {
         global $DB;
 
         require_login();
-        $cm = get_coursemodule_from_id('book', $cmid, 0, false, MUST_EXIST);
+        $cm = get_coursemodule_from_id('book', $cmid, 0, false, IGNORE_MISSING);
+        if (!$cm) {
+            return ['chapters' => []];
+        }
         $context = \context_module::instance($cm->id);
         self::validate_context($context);
         require_capability('mod/book:read', $context);
@@ -1315,7 +1318,10 @@ class external extends \external_api {
         global $DB;
 
         require_login();
-        $cm = get_coursemodule_from_id('quiz', $cmid, 0, false, MUST_EXIST);
+        $cm = get_coursemodule_from_id('quiz', $cmid, 0, false, IGNORE_MISSING);
+        if (!$cm) {
+            return ['questions' => []];
+        }
         $context = \context_module::instance($cm->id);
         self::validate_context($context);
         require_capability('mod/quiz:view', $context);
