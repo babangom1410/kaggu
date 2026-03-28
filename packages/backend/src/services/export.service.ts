@@ -667,82 +667,91 @@ export async function exportProject(
         });
       }
 
+      const doCreate = async () => {
+        const result = await createModule(config, {
+          courseid: moodleCourseId,
+          sectionnum: sectionNum,
+          moduletype: moduleOpts.moduletype,
+          name: nodeName,
+          intro: String(moduleNode.data.description || ''),
+          visible: moduleNode.data.visible !== false ? 1 : 0,
+          options: moduleOpts.options,
+          ...completionFields,
+          ...(availability !== '' ? { availability } : {}),
+        });
+        if (moduleOpts.moduletype === 'book') {
+          await syncBookChapters(config, result.cmid, moduleNode.data.chapters);
+        }
+        if (moduleOpts.moduletype === 'quiz') {
+          await syncQuizQuestions(config, result.cmid, moduleNode.data.questions);
+        }
+        if (moduleOpts.moduletype === 'lesson') {
+          await syncLessonPages(config, result.cmid, moduleNode.data.pages);
+        }
+        if (moduleOpts.moduletype === 'feedback') {
+          await syncFeedbackItems(config, result.cmid, moduleNode.data.items);
+        }
+        report.created++;
+        await upsertMapping(moduleNode.id, 'module', result.cmid, moduleChecksum);
+      };
+
       try {
         if (existingModule?.moodle_id) {
-          if (existingModule.checksum !== moduleChecksum) {
+          let staleMapping = false;
+          try {
             await updateModule(config, existingModule.moodle_id, {
               name: nodeName,
               intro: String(moduleNode.data.description || ''),
               visible: moduleNode.data.visible !== false ? 1 : 0,
-              options: moduleOpts.options,
+              options: existingModule.checksum !== moduleChecksum ? moduleOpts.options : undefined,
               ...completionFields,
               availability,
             });
-            if (moduleOpts.moduletype === 'book') {
-              await syncBookChapters(config, existingModule.moodle_id, moduleNode.data.chapters);
+          } catch (updateErr) {
+            // If the cmid no longer exists in Moodle (stale mapping), recreate.
+            if (updateErr instanceof MoodleError && updateErr.errorcode === 'invalidcoursemodule') {
+              staleMapping = true;
+            } else {
+              throw updateErr;
             }
-            if (moduleOpts.moduletype === 'quiz') {
-              await syncQuizQuestions(config, existingModule.moodle_id, moduleNode.data.questions);
-            }
-            if (moduleOpts.moduletype === 'lesson') {
-              await syncLessonPages(config, existingModule.moodle_id, moduleNode.data.pages);
-            }
-            if (moduleOpts.moduletype === 'feedback') {
-              await syncFeedbackItems(config, existingModule.moodle_id, moduleNode.data.items);
-            }
-            report.updated++;
+          }
+
+          if (staleMapping) {
+            await doCreate();
           } else {
-            // Checksum matches (content unchanged) — still sync completion and
-            // availability so that course_modules stays correct even if the
-            // Moodle plugin was re-installed or Moodle wrote stale values.
-            await updateModule(config, existingModule.moodle_id, {
-              name: nodeName,
-              intro: String(moduleNode.data.description || ''),
-              visible: moduleNode.data.visible !== false ? 1 : 0,
-              ...completionFields,
-              availability,
-            });
-            if (moduleOpts.moduletype === 'book') {
-              await syncBookChapters(config, existingModule.moodle_id, moduleNode.data.chapters);
+            if (existingModule.checksum !== moduleChecksum) {
+              if (moduleOpts.moduletype === 'book') {
+                await syncBookChapters(config, existingModule.moodle_id, moduleNode.data.chapters);
+              }
+              if (moduleOpts.moduletype === 'quiz') {
+                await syncQuizQuestions(config, existingModule.moodle_id, moduleNode.data.questions);
+              }
+              if (moduleOpts.moduletype === 'lesson') {
+                await syncLessonPages(config, existingModule.moodle_id, moduleNode.data.pages);
+              }
+              if (moduleOpts.moduletype === 'feedback') {
+                await syncFeedbackItems(config, existingModule.moodle_id, moduleNode.data.items);
+              }
+              report.updated++;
+            } else {
+              if (moduleOpts.moduletype === 'book') {
+                await syncBookChapters(config, existingModule.moodle_id, moduleNode.data.chapters);
+              }
+              if (moduleOpts.moduletype === 'quiz') {
+                await syncQuizQuestions(config, existingModule.moodle_id, moduleNode.data.questions);
+              }
+              if (moduleOpts.moduletype === 'lesson') {
+                await syncLessonPages(config, existingModule.moodle_id, moduleNode.data.pages);
+              }
+              if (moduleOpts.moduletype === 'feedback') {
+                await syncFeedbackItems(config, existingModule.moodle_id, moduleNode.data.items);
+              }
+              report.skipped++;
             }
-            if (moduleOpts.moduletype === 'quiz') {
-              await syncQuizQuestions(config, existingModule.moodle_id, moduleNode.data.questions);
-            }
-            if (moduleOpts.moduletype === 'lesson') {
-              await syncLessonPages(config, existingModule.moodle_id, moduleNode.data.pages);
-            }
-            if (moduleOpts.moduletype === 'feedback') {
-              await syncFeedbackItems(config, existingModule.moodle_id, moduleNode.data.items);
-            }
-            report.skipped++;
+            await upsertMapping(moduleNode.id, 'module', existingModule.moodle_id, moduleChecksum);
           }
-          await upsertMapping(moduleNode.id, 'module', existingModule.moodle_id, moduleChecksum);
         } else {
-          const result = await createModule(config, {
-            courseid: moodleCourseId,
-            sectionnum: sectionNum,
-            moduletype: moduleOpts.moduletype,
-            name: nodeName,
-            intro: String(moduleNode.data.description || ''),
-            visible: moduleNode.data.visible !== false ? 1 : 0,
-            options: moduleOpts.options,
-            ...completionFields,
-            ...(availability !== '' ? { availability } : {}),
-          });
-          if (moduleOpts.moduletype === 'book') {
-            await syncBookChapters(config, result.cmid, moduleNode.data.chapters);
-          }
-          if (moduleOpts.moduletype === 'quiz') {
-            await syncQuizQuestions(config, result.cmid, moduleNode.data.questions);
-          }
-          if (moduleOpts.moduletype === 'lesson') {
-            await syncLessonPages(config, result.cmid, moduleNode.data.pages);
-          }
-          if (moduleOpts.moduletype === 'feedback') {
-            await syncFeedbackItems(config, result.cmid, moduleNode.data.items);
-          }
-          report.created++;
-          await upsertMapping(moduleNode.id, 'module', result.cmid, moduleChecksum);
+          await doCreate();
         }
       } catch (err) {
         const msg = err instanceof MoodleError ? err.message : String(err);

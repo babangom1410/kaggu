@@ -591,79 +591,89 @@ class external extends \external_api {
             'options'             => $options,
         ]);
 
-        $cm = get_coursemodule_from_id('', $params['cmid'], 0, false, MUST_EXIST);
-        self::check_license_and_capability($cm->course);
-
-        // Get existing module info
-        $course = get_course($cm->course);
-        [$cm_info, $context, $module, $data, $cw] = get_moduleinfo_data($cm, $course);
-
-        // Apply updates (all params always present thanks to VALUE_DEFAULT)
-        if ($params['name'] !== '')  $data->name = $params['name'];
-        $data->intro              = $params['intro'];
-        $data->visible            = (int) $params['visible'];
-        // Do NOT pass completion/availability to update_moduleinfo for the same
-        // reason as create_module: apply_completion_to_cm() handles these directly.
-        $data->completion         = 0;
-        $data->completionview     = 0;
-        $data->completionusegrade = 0;
-        $data->completionpassgrade = 0;
-        $data->completionexpected  = 0;
-        $data->availability        = null;
-
-        $opts = [];
-        foreach ($params['options'] as $opt) {
-            $opts[$opt['name']] = $opt['value'];
-        }
-        if (!empty($opts)) {
-            self::apply_module_options($data, $cm->modname, $opts);
-        } else {
-            // No opts provided — preserve module-specific fields that
-            // update_moduleinfo / *_update_instance require but cannot
-            // reconstruct from get_moduleinfo_data alone in Moodle 5.x.
-            switch ($cm->modname) {
-                case 'page':
-                    // page_update_instance reads $data->page['text']/['format'] and $data->introeditor['text']
-                    $content = $data->content ?? '';
-                    $cfmt    = $data->contentformat ?? FORMAT_HTML;
-                    $data->page = ['text' => $content, 'format' => $cfmt, 'itemid' => 0];
-                    $intro_val   = $data->intro ?? '';
-                    $ifmt        = $data->introformat ?? FORMAT_HTML;
-                    $data->introeditor = ['text' => $intro_val, 'format' => $ifmt, 'itemid' => 0];
-                    $data->displayoptions = serialize([
-                        'printintro'        => (int)($data->printintro        ?? 0),
-                        'printlastmodified' => (int)($data->printlastmodified ?? 1),
-                    ]);
-                    break;
-                case 'book':
-                    $intro_val = $data->intro ?? '';
-                    $data->introeditor = ['text' => $intro_val, 'format' => $data->introformat ?? FORMAT_HTML, 'itemid' => 0];
-                    break;
-                case 'quiz':
-                    // quiz_update_instance maps quizpassword → password column
-                    $data->quizpassword = $data->password ?? '';
-                    break;
-                case 'lesson':
-                    // lesson_update_instance requires conditions as a serialized array.
-                    // get_moduleinfo_data may return it as a plain string or null.
-                    if (empty($data->conditions) || !is_string($data->conditions) || $data->conditions[0] !== 'a') {
-                        $data->conditions = serialize([]);
-                    }
-                    break;
-                case 'feedback':
-                    // feedback_update_instance: no special field reconstruction needed.
-                    break;
+        try {
+            $cm = get_coursemodule_from_id('', $params['cmid'], 0, false, IGNORE_MISSING);
+            if (!$cm) {
+                throw new \moodle_exception('invalidcoursemodule', 'error', '',
+                    'cmid=' . $params['cmid'] . ' not found — mapping may be stale');
             }
+            self::check_license_and_capability($cm->course);
+
+            // Get existing module info
+            $course = get_course($cm->course);
+            [$cm_info, $context, $module, $data, $cw] = get_moduleinfo_data($cm, $course);
+
+            // Apply updates (all params always present thanks to VALUE_DEFAULT)
+            if ($params['name'] !== '')  $data->name = $params['name'];
+            $data->intro              = $params['intro'];
+            $data->visible            = (int) $params['visible'];
+            // Do NOT pass completion/availability to update_moduleinfo for the same
+            // reason as create_module: apply_completion_to_cm() handles these directly.
+            $data->completion         = 0;
+            $data->completionview     = 0;
+            $data->completionusegrade = 0;
+            $data->completionpassgrade = 0;
+            $data->completionexpected  = 0;
+            $data->availability        = null;
+
+            $opts = [];
+            foreach ($params['options'] as $opt) {
+                $opts[$opt['name']] = $opt['value'];
+            }
+            if (!empty($opts)) {
+                self::apply_module_options($data, $cm->modname, $opts);
+            } else {
+                // No opts provided — preserve module-specific fields that
+                // update_moduleinfo / *_update_instance require but cannot
+                // reconstruct from get_moduleinfo_data alone in Moodle 5.x.
+                switch ($cm->modname) {
+                    case 'page':
+                        // page_update_instance reads $data->page['text']/['format'] and $data->introeditor['text']
+                        $content = $data->content ?? '';
+                        $cfmt    = $data->contentformat ?? FORMAT_HTML;
+                        $data->page = ['text' => $content, 'format' => $cfmt, 'itemid' => 0];
+                        $intro_val   = $data->intro ?? '';
+                        $ifmt        = $data->introformat ?? FORMAT_HTML;
+                        $data->introeditor = ['text' => $intro_val, 'format' => $ifmt, 'itemid' => 0];
+                        $data->displayoptions = serialize([
+                            'printintro'        => (int)($data->printintro        ?? 0),
+                            'printlastmodified' => (int)($data->printlastmodified ?? 1),
+                        ]);
+                        break;
+                    case 'book':
+                        $intro_val = $data->intro ?? '';
+                        $data->introeditor = ['text' => $intro_val, 'format' => $data->introformat ?? FORMAT_HTML, 'itemid' => 0];
+                        break;
+                    case 'quiz':
+                        // quiz_update_instance maps quizpassword → password column
+                        $data->quizpassword = $data->password ?? '';
+                        break;
+                    case 'lesson':
+                        // lesson_update_instance requires conditions as a serialized array.
+                        // get_moduleinfo_data may return it as a plain string or null.
+                        if (empty($data->conditions) || !is_string($data->conditions) || $data->conditions[0] !== 'a') {
+                            $data->conditions = serialize([]);
+                        }
+                        break;
+                    case 'feedback':
+                        // feedback_update_instance: no special field reconstruction needed.
+                        break;
+                }
+            }
+
+            update_moduleinfo($cm, $data, $course);
+
+            // update_moduleinfo does not reliably persist completion/availability fields.
+            // Write them directly to course_modules to guarantee they are stored.
+            self::apply_completion_to_cm($DB, $cm->id, $params);
+            rebuild_course_cache($cm->course, true);
+
+            return ['success' => true];
+        } catch (\Throwable $e) {
+            $trace = array_slice(explode("\n", $e->getTraceAsString()), 0, 4);
+            throw new \moodle_exception('error_module_type', 'local_kaggu', '',
+                get_class($e) . ': ' . $e->getMessage() . ' @ ' . implode(' @ ', $trace));
         }
-
-        update_moduleinfo($cm, $data, $course);
-
-        // update_moduleinfo does not reliably persist completion/availability fields.
-        // Write them directly to course_modules to guarantee they are stored.
-        self::apply_completion_to_cm($DB, $cm->id, $params);
-        rebuild_course_cache($cm->course, true);
-
-        return ['success' => true];
     }
 
     public static function update_module_returns(): \external_single_structure {
