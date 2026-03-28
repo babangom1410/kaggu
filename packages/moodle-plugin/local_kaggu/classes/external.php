@@ -187,57 +187,57 @@ class external extends \external_api {
         }
         require_once($modlibpath);
 
-        // Get or create section record
-        $section = $DB->get_record('course_sections', [
-            'course'  => $params['courseid'],
-            'section' => $params['sectionnum'],
-        ]);
-        if (!$section) {
-            course_create_section($params['courseid'], $params['sectionnum'], true);
+        try {
+            // Get or create section record
             $section = $DB->get_record('course_sections', [
                 'course'  => $params['courseid'],
                 'section' => $params['sectionnum'],
-            ], '*', MUST_EXIST);
-        }
+            ]);
+            if (!$section) {
+                course_create_section($params['courseid'], $params['sectionnum'], true);
+                $section = $DB->get_record('course_sections', [
+                    'course'  => $params['courseid'],
+                    'section' => $params['sectionnum'],
+                ], '*', MUST_EXIST);
+            }
 
-        // Get module type record
-        $module = $DB->get_record('modules', ['name' => $params['moduletype']], '*', MUST_EXIST);
+            // Get module type record
+            $module = $DB->get_record('modules', ['name' => $params['moduletype']], '*', MUST_EXIST);
 
-        // Build module info
-        $moduleinfo = new \stdClass();
-        $moduleinfo->modulename     = $params['moduletype'];
-        $moduleinfo->module         = $module->id; // required in Moodle 5.x
-        $moduleinfo->course         = $params['courseid'];
-        $moduleinfo->section        = $params['sectionnum'];
-        $moduleinfo->name           = $params['name'];
-        $moduleinfo->intro          = $params['intro'] ?: '<p></p>';
-        $moduleinfo->introformat    = FORMAT_HTML;
-        $moduleinfo->visible        = $params['visible'];
-        $moduleinfo->visibleold     = $params['visible'];
-        $moduleinfo->cmidnumber          = '';
-        $moduleinfo->groupmode           = 0;
-        $moduleinfo->groupingid          = 0;
-        // Do NOT pass completion/availability to add_moduleinfo: Moodle validates
-        // the availability JSON at construction time and throws a coding_exception
-        // if a referenced module has completion=0 (even transiently during export).
-        // apply_completion_to_cm() writes these fields directly after creation.
-        $moduleinfo->completion          = 0;
-        $moduleinfo->completionview      = 0;
-        $moduleinfo->completionusegrade  = 0;
-        $moduleinfo->completionpassgrade = 0;
-        $moduleinfo->completionexpected  = 0;
-        $moduleinfo->availability        = null;
-        $moduleinfo->showdescription     = 0;
-        $moduleinfo->lang                = '';
-        // Moodle 5.x new fields
-        $moduleinfo->visibleoncoursepage = 1;
-        $moduleinfo->downloadcontent     = 1;
-        $moduleinfo->enabledaiactions    = null;
+            // Build module info
+            $moduleinfo = new \stdClass();
+            $moduleinfo->modulename     = $params['moduletype'];
+            $moduleinfo->module         = $module->id; // required in Moodle 5.x
+            $moduleinfo->course         = $params['courseid'];
+            $moduleinfo->section        = $params['sectionnum'];
+            $moduleinfo->name           = $params['name'];
+            $moduleinfo->intro          = $params['intro'] ?: '<p></p>';
+            $moduleinfo->introformat    = FORMAT_HTML;
+            $moduleinfo->visible        = $params['visible'];
+            $moduleinfo->visibleold     = $params['visible'];
+            $moduleinfo->cmidnumber          = '';
+            $moduleinfo->groupmode           = 0;
+            $moduleinfo->groupingid          = 0;
+            // Do NOT pass completion/availability to add_moduleinfo: Moodle validates
+            // the availability JSON at construction time and throws a coding_exception
+            // if a referenced module has completion=0 (even transiently during export).
+            // apply_completion_to_cm() writes these fields directly after creation.
+            $moduleinfo->completion          = 0;
+            $moduleinfo->completionview      = 0;
+            $moduleinfo->completionusegrade  = 0;
+            $moduleinfo->completionpassgrade = 0;
+            $moduleinfo->completionexpected  = 0;
+            $moduleinfo->availability        = null;
+            $moduleinfo->showdescription     = 0;
+            $moduleinfo->lang                = '';
+            // Moodle 5.x new fields
+            $moduleinfo->visibleoncoursepage = 1;
+            $moduleinfo->downloadcontent     = 1;
+            $moduleinfo->enabledaiactions    = null;
 
-        // Module-specific fields
-        self::apply_module_options($moduleinfo, $params['moduletype'], $opts);
+            // Module-specific fields
+            self::apply_module_options($moduleinfo, $params['moduletype'], $opts);
 
-        try {
             $moduleinfo = add_moduleinfo($moduleinfo, $course);
             $cmid = (int) ($moduleinfo->coursemodule ?? 0);
             if (!$cmid) {
@@ -255,7 +255,7 @@ class external extends \external_api {
                 'moduletype' => $params['moduletype'],
                 'instanceid' => (int) $cm->instance,
             ];
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             $trace = array_slice(explode("\n", $e->getTraceAsString()), 0, 4);
             throw new \moodle_exception('error_module_type', 'local_kaggu', '',
                 get_class($e) . ': ' . $e->getMessage() . ' @ ' . implode(' @ ', $trace));
@@ -1594,7 +1594,11 @@ class external extends \external_api {
         ]);
 
         require_login();
-        $cm = get_coursemodule_from_id('lesson', $params['cmid'], 0, false, MUST_EXIST);
+        $cm = get_coursemodule_from_id('lesson', $params['cmid'], 0, false, IGNORE_MISSING);
+        if (!$cm) {
+            throw new \moodle_exception('invalidcoursemodule', 'error', '',
+                'lesson cmid=' . $params['cmid'] . ' not found in course_modules');
+        }
         $context = \context_module::instance($cm->id);
         self::validate_context($context);
         require_capability('moodle/course:manageactivities', $context);
