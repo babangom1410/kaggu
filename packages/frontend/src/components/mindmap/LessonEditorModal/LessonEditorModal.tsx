@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { PageEditorModal } from '@/components/mindmap/PageEditorModal';
+import { generateLesson } from '@/api/llm-api';
 import type { LessonPage, LessonPageAnswer, LessonPageType } from '@/types/mindmap.types';
 
 interface LessonEditorModalProps {
@@ -214,11 +215,147 @@ function PageCard({ page, index, total, onChange, onDelete, onMoveUp, onMoveDown
   );
 }
 
+// ─── AI Panel ─────────────────────────────────────────────────────────────────
+
+interface AiPanelProps {
+  lessonName: string;
+  onInsert: (pages: LessonPage[]) => void;
+}
+
+function AiPanel({ lessonName, onInsert }: AiPanelProps) {
+  const [prompt, setPrompt] = useState('');
+  const [count, setCount] = useState(5);
+  const [types, setTypes] = useState<LessonPageType[]>(['content', 'multichoice']);
+  const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState<LessonPage[] | null>(null);
+  const [error, setError] = useState('');
+
+  const ALL_TYPES: { value: LessonPageType; label: string }[] = [
+    { value: 'content',     label: 'Contenu' },
+    { value: 'multichoice', label: 'QCM' },
+    { value: 'truefalse',   label: 'V/F' },
+    { value: 'shortanswer', label: 'Courte' },
+  ];
+
+  const toggleType = (t: LessonPageType) => {
+    setTypes((prev) => prev.includes(t) ? (prev.length > 1 ? prev.filter((x) => x !== t) : prev) : [...prev, t]);
+  };
+
+  const generate = async () => {
+    if (!prompt.trim()) return;
+    setLoading(true);
+    setError('');
+    setPreview(null);
+    try {
+      const raw = await generateLesson(lessonName, prompt, count, types);
+      setPreview(raw as LessonPage[]);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col h-full overflow-y-auto px-4 py-4 space-y-4">
+      <div className="flex items-center gap-2 text-indigo-400 font-semibold text-sm">
+        <span>✨</span> Générer par IA
+      </div>
+
+      {/* Prompt */}
+      <div>
+        <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Consigne</label>
+        <textarea
+          value={prompt} onChange={(e) => setPrompt(e.target.value)}
+          placeholder="ex. Leçon interactive sur les bases des réseaux TCP/IP, niveau BTS…"
+          rows={4}
+          className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 border border-slate-700
+                     focus:border-indigo-500 focus:outline-none placeholder:text-slate-600 resize-none"
+        />
+      </div>
+
+      {/* Count */}
+      <div>
+        <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Nb de pages</label>
+        <input
+          type="number" min={1} max={30} value={count}
+          onChange={(e) => setCount(Math.max(1, Math.min(30, Number(e.target.value))))}
+          className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 border border-slate-700 focus:border-indigo-500 focus:outline-none"
+        />
+      </div>
+
+      {/* Types */}
+      <div>
+        <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">Types de pages</label>
+        <div className="grid grid-cols-2 gap-1.5">
+          {ALL_TYPES.map(({ value, label }) => (
+            <button
+              key={value} onClick={() => toggleType(value)}
+              className={`py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                types.includes(value)
+                  ? 'bg-indigo-500 text-white'
+                  : 'bg-slate-800 text-slate-400 border border-slate-700 hover:text-slate-200'
+              }`}
+            >{label}</button>
+          ))}
+        </div>
+      </div>
+
+      {error && (
+        <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{error}</div>
+      )}
+
+      {/* Preview */}
+      {preview && preview.length > 0 && (
+        <div>
+          <div className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2">
+            Aperçu — {preview.length} page{preview.length > 1 ? 's' : ''}
+          </div>
+          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+            {preview.map((p, i) => (
+              <div key={p.id ?? i} className="bg-slate-800 rounded-lg px-3 py-2 space-y-0.5">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] font-semibold bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded">
+                    {PAGE_TYPE_LABELS[p.type] ?? p.type}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-300 line-clamp-1">{p.title || '—'}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Actions */}
+      <div className="space-y-2 pt-1">
+        <button
+          onClick={generate}
+          disabled={loading || !prompt.trim()}
+          className="w-full py-2.5 rounded-lg text-sm font-semibold bg-indigo-600 hover:bg-indigo-500
+                     text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          {loading ? 'Génération en cours…' : '✨ Générer'}
+        </button>
+        {preview && preview.length > 0 && (
+          <button
+            onClick={() => { onInsert(preview); setPreview(null); setPrompt(''); }}
+            className="w-full py-2.5 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-500
+                       text-white transition-colors"
+          >
+            Insérer {preview.length} page{preview.length > 1 ? 's' : ''}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── LessonEditorModal ────────────────────────────────────────────────────────
 
 export function LessonEditorModal({ lessonName, data, onUpdate, onClose }: LessonEditorModalProps) {
   const pages = (data.pages ?? []) as LessonPage[];
   const [editingContentIdx, setEditingContentIdx] = useState<number | null>(null);
+  const [aiOpen, setAiOpen] = useState(false);
 
   const setPages = (updated: LessonPage[]) => onUpdate('pages', updated);
 
@@ -250,7 +387,7 @@ export function LessonEditorModal({ lessonName, data, onUpdate, onClose }: Lesso
   const editingPage = editingContentIdx !== null ? pages[editingContentIdx] : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-slate-950 text-slate-200">
+    <div className="fixed inset-0 z-50 flex flex-col bg-slate-900">
       {/* Page content editor overlay */}
       {editingPage !== null && editingContentIdx !== null && (
         <PageEditorModal
@@ -265,65 +402,108 @@ export function LessonEditorModal({ lessonName, data, onUpdate, onClose }: Lesso
         />
       )}
 
-      {/* Toolbar */}
-      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-violet-500/15 flex items-center justify-center text-base">📖</div>
-          <div>
-            <div className="text-[11px] font-semibold text-violet-400 uppercase tracking-wider">Éditeur de leçon</div>
-            <div className="text-sm font-semibold text-slate-200">{lessonName}</div>
+      {/* ── Top bar ──────────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-700/60 bg-slate-900 flex-shrink-0">
+        <div className="w-8 h-8 rounded-xl bg-violet-500/15 flex items-center justify-center flex-shrink-0">
+          <span className="text-base">📖</span>
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-sm font-semibold text-slate-200 truncate">{lessonName}</div>
+          <div className="text-[11px] text-slate-500">
+            {pages.length} page{pages.length !== 1 ? 's' : ''}
           </div>
         </div>
+
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500">
-            {pages.length} page{pages.length !== 1 ? 's' : ''}
-          </span>
-          <button onClick={onClose}
-            className="w-8 h-8 rounded-lg flex items-center justify-center text-slate-400
-                       hover:bg-slate-800 hover:text-slate-200 transition-colors">
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-              <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-            </svg>
+          <button
+            onClick={() => setAiOpen((v) => !v)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              aiOpen
+                ? 'bg-indigo-500/30 text-indigo-300 border border-indigo-500/40'
+                : 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 hover:bg-indigo-500/20'
+            }`}
+          >
+            ✨ IA
+          </button>
+          <button
+            onClick={onClose}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+                       bg-slate-800 text-slate-400 border border-slate-700 hover:text-slate-200 transition-colors"
+          >
+            ✕ Fermer
           </button>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="max-w-3xl mx-auto px-6 py-6 space-y-4">
-          {pages.length === 0 && (
-            <div className="text-center py-16 text-slate-600">
-              <div className="text-4xl mb-3">📖</div>
-              <p className="text-sm">Aucune page — ajoutez-en une ci-dessous</p>
+      {/* ── Body ─────────────────────────────────────────────────────────────── */}
+      <div className="flex flex-1 min-h-0">
+
+        {/* Pages list */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          {/* Subheader */}
+          <div className="flex items-center justify-between px-6 py-3 border-b border-slate-700/40 flex-shrink-0">
+            <span className="text-sm font-semibold text-slate-300">
+              Pages
+              {pages.length > 0 && (
+                <span className="ml-2 text-xs font-normal text-slate-500">{pages.length}</span>
+              )}
+            </span>
+            <div className="flex gap-1.5">
+              {(Object.keys(PAGE_TYPE_LABELS) as LessonPageType[]).map((t) => (
+                <button key={t} onClick={() => addPage(t)}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                             bg-slate-800 text-slate-400 border border-slate-700
+                             hover:border-indigo-500/50 hover:text-slate-200 transition-colors">
+                  + {PAGE_TYPE_LABELS[t]}
+                </button>
+              ))}
             </div>
-          )}
+          </div>
 
-          {pages.map((page, i) => (
-            <PageCard
-              key={page.id}
-              page={page}
-              index={i}
-              total={pages.length}
-              onChange={(p) => updatePage(i, p)}
-              onDelete={() => deletePage(i)}
-              onMoveUp={() => movePage(i, -1)}
-              onMoveDown={() => movePage(i, 1)}
-              onEditContent={() => setEditingContentIdx(i)}
-            />
-          ))}
-
-          {/* Add page buttons */}
-          <div className="flex flex-wrap gap-2 pt-2">
-            {(Object.keys(PAGE_TYPE_LABELS) as LessonPageType[]).map((t) => (
-              <button key={t} onClick={() => addPage(t)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
-                           bg-slate-800 text-slate-400 border border-slate-700
-                           hover:border-indigo-500/50 hover:text-slate-200 transition-colors">
-                + {PAGE_TYPE_LABELS[t]}
-              </button>
-            ))}
+          {/* Scrollable list */}
+          <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
+            {pages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full gap-4 text-slate-600">
+                <span className="text-4xl">📖</span>
+                <p className="text-sm">Aucune page — ajoutez-en manuellement ou générez-en avec l'IA</p>
+                <div className="flex gap-3">
+                  <button onClick={() => addPage('content')}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-slate-800 border border-slate-700 text-slate-300 hover:text-white transition-colors">
+                    + Page de contenu
+                  </button>
+                  <button onClick={() => setAiOpen(true)}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors">
+                    ✨ Générer par IA
+                  </button>
+                </div>
+              </div>
+            ) : (
+              pages.map((page, idx) => (
+                <PageCard
+                  key={page.id}
+                  page={page}
+                  index={idx}
+                  total={pages.length}
+                  onChange={(p) => updatePage(idx, p)}
+                  onDelete={() => deletePage(idx)}
+                  onMoveUp={() => movePage(idx, -1)}
+                  onMoveDown={() => movePage(idx, 1)}
+                  onEditContent={() => setEditingContentIdx(idx)}
+                />
+              ))
+            )}
           </div>
         </div>
+
+        {/* AI panel */}
+        {aiOpen && (
+          <div className="w-72 flex-shrink-0 border-l border-slate-700/60 overflow-y-auto">
+            <AiPanel
+              lessonName={lessonName}
+              onInsert={(generated) => setPages([...pages, ...generated])}
+            />
+          </div>
+        )}
       </div>
     </div>
   );

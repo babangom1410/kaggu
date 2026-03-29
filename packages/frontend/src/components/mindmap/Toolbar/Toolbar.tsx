@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMindmapStore, generateNodeId } from '@/stores/mindmap-store';
 import { useAuthStore } from '@/stores/auth-store';
@@ -6,6 +6,87 @@ import type { SyncStatus } from '@/stores/mindmap-store';
 import { ExportModal } from '@/components/mindmap/ExportModal';
 import { ImportModal } from '@/components/mindmap/ImportModal/ImportModal';
 import { CourseStructureWizard } from '@/components/mindmap/AiAssistant';
+import { analyzeMindmap } from '@/api/llm-api';
+
+// ─── Analyze Modal ────────────────────────────────────────────────────────────
+
+function AnalyzeModal({ summary, onClose }: { summary: string; onClose: () => void }) {
+  const [output, setOutput] = useState('');
+  const [streaming, setStreaming] = useState(false);
+  const [error, setError] = useState('');
+  const abortControllerRef = useRef<AbortController | null>(null);
+
+  const handleAnalyze = async () => {
+    if (streaming) return;
+    setOutput('');
+    setError('');
+    setStreaming(true);
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    try {
+      await analyzeMindmap(summary, (event, data) => {
+        const d = data as Record<string, unknown>;
+        if (event === 'delta') setOutput((prev) => prev + (d.text as string));
+        if (event === 'error') setError(d.message as string);
+      }, controller.signal);
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') setError((e as Error).message);
+    } finally {
+      setStreaming(false);
+      abortControllerRef.current = null;
+    }
+  };
+
+  // Auto-start on mount
+  useEffect(() => { void handleAnalyze(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-xl max-h-[80vh] flex flex-col">
+        <div className="px-5 py-4 border-b border-slate-700 flex items-center justify-between flex-shrink-0">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <span>🔍</span> Analyse pédagogique
+          </h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 text-xl">×</button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          {(output || streaming) && (
+            <div className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">
+              {output}
+              {streaming && <span className="inline-block w-1.5 h-3.5 bg-indigo-400 animate-pulse ml-0.5" />}
+            </div>
+          )}
+          {error && <div className="text-red-400 text-xs bg-red-500/10 rounded-lg p-3">{error}</div>}
+          {!output && !streaming && !error && (
+            <div className="flex items-center gap-2 text-sm text-slate-500">
+              <span className="w-4 h-4 border-2 border-slate-600 border-t-indigo-400 rounded-full animate-spin" />
+              Analyse en cours…
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-slate-700 flex justify-between items-center flex-shrink-0">
+          {streaming && (
+            <button onClick={() => abortControllerRef.current?.abort()}
+              className="text-xs text-slate-400 hover:text-slate-200 transition-colors">
+              Arrêter
+            </button>
+          )}
+          {!streaming && !output && !error && <span />}
+          {!streaming && (output || error) && (
+            <button onClick={handleAnalyze}
+              className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">
+              Relancer
+            </button>
+          )}
+          <button onClick={onClose}
+            className="px-4 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm text-slate-300 transition-colors">
+            Fermer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Logo() {
   return (
@@ -142,6 +223,7 @@ export function Toolbar() {
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [analyzeOpen, setAnalyzeOpen] = useState(false);
 
   const isMoodleConnected = !!(moodleConfig?.url && moodleConfig?.token);
 
@@ -242,6 +324,17 @@ export function Toolbar() {
         title="Générer une structure de cours avec l'IA"
       >
         ✨ Assistant
+      </button>
+
+      {/* AI Analyze */}
+      <button
+        onClick={() => setAnalyzeOpen(true)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+                   bg-violet-500/15 text-violet-400 border border-violet-500/20
+                   hover:bg-violet-500/25 hover:text-violet-300 transition-all duration-150"
+        title="Analyser la cohérence pédagogique du mindmap"
+      >
+        🔍 Analyser
       </button>
 
       <div className="flex-1" />
@@ -371,6 +464,19 @@ export function Toolbar() {
 
       {/* AI Course Structure Wizard */}
       {wizardOpen && <CourseStructureWizard onClose={() => setWizardOpen(false)} />}
+
+      {/* AI Analyze Modal */}
+      {analyzeOpen && (
+        <AnalyzeModal
+          summary={nodes.map((n) => {
+            const d = n.data as unknown as Record<string, unknown>;
+            const label = (d.fullname ?? d.name ?? n.id) as string;
+            const subtype = d.subtype ? ` (${d.subtype as string})` : '';
+            return `[${n.type}${subtype}] ${label}`;
+          }).join('\n')}
+          onClose={() => setAnalyzeOpen(false)}
+        />
+      )}
     </header>
   );
 }

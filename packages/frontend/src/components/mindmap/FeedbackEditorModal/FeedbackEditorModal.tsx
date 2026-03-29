@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { FeedbackItem, FeedbackItemType } from '@/types/mindmap.types';
+import { generateFeedback } from '@/api/llm-api';
 
 interface FeedbackEditorModalProps {
   feedbackName: string;
@@ -182,6 +183,87 @@ const ADDABLE_TYPES: FeedbackItemType[] = [
   'label', 'info', 'text', 'textarea', 'multichoice', 'multichoice_rated', 'numeric', 'pagebreak',
 ];
 
+// ─── AI Panel ─────────────────────────────────────────────────────────────────
+
+interface AiPanelProps {
+  feedbackName: string;
+  onInject: (items: FeedbackItem[]) => void;
+}
+
+function AiPanel({ feedbackName, onInject }: AiPanelProps) {
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [preview, setPreview] = useState<FeedbackItem[] | null>(null);
+  const [aiError, setAiError] = useState('');
+
+  const handleGenerate = async () => {
+    if (!aiPrompt.trim() || generating) return;
+    setGenerating(true);
+    setPreview(null);
+    setAiError('');
+    try {
+      const raw = await generateFeedback(feedbackName, aiPrompt, 6);
+      setPreview(raw as FeedbackItem[]);
+    } catch (e) {
+      setAiError((e as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="bg-indigo-950/40 border border-indigo-500/20 rounded-xl p-4 space-y-3">
+      <div className="flex items-center gap-2">
+        <span className="text-base">✨</span>
+        <span className="text-sm font-semibold text-indigo-300">Générer des questions avec l'IA</span>
+      </div>
+      <textarea
+        value={aiPrompt}
+        onChange={(e) => setAiPrompt(e.target.value)}
+        placeholder="Ex : Génère un questionnaire de satisfaction post-cours avec des questions sur le contenu, le rythme et la pédagogie…"
+        rows={3}
+        className="w-full bg-slate-800 text-slate-200 text-xs rounded-lg px-3 py-2 border border-slate-700
+                   focus:border-indigo-500 focus:outline-none placeholder:text-slate-600 resize-none"
+      />
+      <button onClick={handleGenerate} disabled={!aiPrompt.trim() || generating}
+        className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-medium
+                   transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
+        {generating ? (
+          <><span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />Génération…</>
+        ) : '✨ Générer'}
+      </button>
+
+      {aiError && <div className="text-red-400 text-xs bg-red-500/10 rounded-lg p-2">{aiError}</div>}
+
+      {preview && (
+        <div className="space-y-2">
+          <div className="text-xs text-slate-400 font-medium">{preview.length} item{preview.length > 1 ? 's' : ''} générés</div>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {preview.map((item, i) => (
+              <div key={i} className="flex items-start gap-2 bg-slate-800/60 rounded-lg px-3 py-2 text-xs text-slate-300">
+                <span className="text-slate-500 flex-shrink-0">{ITEM_TYPE_ICONS[item.type as FeedbackItemType] ?? '•'}</span>
+                <span className="line-clamp-2">{item.name || <span className="text-slate-600">—</span>}</span>
+              </div>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <button onClick={() => { onInject(preview); setPreview(null); setAiPrompt(''); }}
+              className="flex-1 py-1.5 text-xs bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 rounded-lg border border-emerald-500/20 transition-colors">
+              + Ajouter au formulaire
+            </button>
+            <button onClick={() => setPreview(null)}
+              className="px-3 py-1.5 text-xs bg-slate-700 hover:bg-slate-600 text-slate-400 rounded-lg transition-colors">
+              Ignorer
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── FeedbackEditorModal ──────────────────────────────────────────────────────
+
 export function FeedbackEditorModal({ feedbackName, data, onUpdate, onClose }: FeedbackEditorModalProps) {
   const items = (data.items ?? []) as FeedbackItem[];
 
@@ -234,10 +316,12 @@ export function FeedbackEditorModal({ feedbackName, data, onUpdate, onClose }: F
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-3xl mx-auto px-6 py-6 space-y-4">
+          <AiPanel feedbackName={feedbackName} onInject={(newItems) => setItems([...items, ...newItems])} />
+
           {items.length === 0 && (
-            <div className="text-center py-16 text-slate-600">
+            <div className="text-center py-12 text-slate-600">
               <div className="text-4xl mb-3">💬</div>
-              <p className="text-sm">Aucune question — ajoutez-en une ci-dessous</p>
+              <p className="text-sm">Aucune question — ajoutez-en une ci-dessous ou utilisez l'IA</p>
             </div>
           )}
 

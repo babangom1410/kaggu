@@ -7,6 +7,9 @@ import {
   analyzeMindmap,
   generateHtmlContent,
   generateQuizQuestions,
+  generateFeedbackItems,
+  generateLessonPages,
+  generateBookChapters,
 } from '../services/llm.service';
 
 const router = Router();
@@ -107,6 +110,73 @@ router.post('/generate-quiz', async (req, res) => {
   try {
     const result = await generateQuizQuestions(parsed.data);
     res.json({ data: result.questions, input_tokens: result.input_tokens, output_tokens: result.output_tokens });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/v1/llm/generate-lesson — generate lesson pages (JSON)
+router.post('/generate-lesson', async (req, res) => {
+  const schema = z.object({
+    lessonName: z.string().min(1),
+    prompt:     z.string().min(1).max(2000),
+    pageCount:  z.number().int().min(1).max(30).default(5),
+    pageTypes:  z.array(z.enum(['content', 'multichoice', 'truefalse', 'shortanswer'])).min(1).default(['content', 'multichoice']),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  try {
+    const result = await generateLessonPages(parsed.data);
+    res.json({ data: result.pages, input_tokens: result.input_tokens, output_tokens: result.output_tokens });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/v1/llm/generate-book — generate book chapters (JSON)
+router.post('/generate-book', async (req, res) => {
+  const schema = z.object({
+    bookName:     z.string().min(1),
+    prompt:       z.string().min(1).max(2000),
+    chapterCount: z.number().int().min(1).max(20).default(6),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  try {
+    const result = await generateBookChapters(parsed.data);
+    res.json({ data: result.chapters, input_tokens: result.input_tokens, output_tokens: result.output_tokens });
+  } catch (err) {
+    res.status(500).json({ error: (err as Error).message });
+  }
+});
+
+// POST /api/v1/llm/generate-feedback — generate feedback items (JSON)
+router.post('/generate-feedback', async (req, res) => {
+  const schema = z.object({
+    feedbackName: z.string().min(1),
+    prompt:       z.string().min(1).max(2000),
+    itemCount:    z.number().int().min(1).max(20).default(5),
+  });
+
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  try {
+    const result = await generateFeedbackItems(parsed.data);
+    res.json({ data: result.items, input_tokens: result.input_tokens, output_tokens: result.output_tokens });
   } catch (err) {
     res.status(500).json({ error: (err as Error).message });
   }

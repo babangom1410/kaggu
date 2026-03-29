@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { generateCourseStructure } from '@/api/llm-api';
 import { useMindmapStore } from '@/stores/mindmap-store';
 
@@ -28,6 +28,7 @@ export function CourseStructureWizard({ onClose }: Props) {
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState('');
   const [applied, setApplied] = useState(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const examples = [
     'Cours de mathématiques pour lycée, 8 semaines, avec exercices et évaluations',
@@ -43,18 +44,26 @@ export function CourseStructureWizard({ onClose }: Props) {
     setApplied(false);
     setStreaming(true);
 
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     try {
       await generateCourseStructure(description, (event, data) => {
         const d = data as Record<string, unknown>;
         if (event === 'delta')  setOutput((prev) => prev + (d.text as string));
         if (event === 'done' && d.structure) setStructure(d.structure as CourseStructure);
         if (event === 'error') setError(d.message as string);
-      });
+      }, controller.signal);
     } catch (e) {
-      setError((e as Error).message);
+      if ((e as Error).name !== 'AbortError') setError((e as Error).message);
     } finally {
       setStreaming(false);
+      abortControllerRef.current = null;
     }
+  };
+
+  const handleCancel = () => {
+    abortControllerRef.current?.abort();
   };
 
   const handleApply = () => {
@@ -131,13 +140,21 @@ export function CourseStructureWizard({ onClose }: Props) {
               rows={4}
               className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 border border-slate-700
                          focus:border-indigo-500 focus:outline-none placeholder:text-slate-600 resize-none" />
-            <button onClick={handleGenerate} disabled={!description.trim() || streaming}
-              className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-medium
-                         transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
-              {streaming ? (
-                <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Génération…</>
-              ) : '✨ Générer la structure'}
-            </button>
+            <div className="flex gap-2">
+              <button onClick={handleGenerate} disabled={!description.trim() || streaming}
+                className="flex-1 py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-medium
+                           transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
+                {streaming ? (
+                  <><span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />Génération…</>
+                ) : '✨ Générer la structure'}
+              </button>
+              {streaming && (
+                <button onClick={handleCancel}
+                  className="px-3 py-2.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm text-slate-300 transition-colors">
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Output preview */}

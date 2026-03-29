@@ -90,6 +90,19 @@ Pour les quiz, retourne un JSON valide avec la structure :
   }
 }
 
+// ─── JSON extraction helpers ──────────────────────────────────────────────────
+
+function extractJsonBlock(text: string, startChar: '{' | '['): string {
+  // Strip markdown code fences first
+  const fenceMatch = text.match(/```(?:json)?\s*([\s\S]*?)```/);
+  if (fenceMatch) return fenceMatch[1].trim();
+
+  const endChar = startChar === '{' ? '}' : ']';
+  const start = text.indexOf(startChar);
+  const end = text.lastIndexOf(endChar);
+  return start !== -1 && end > start ? text.slice(start, end + 1) : text.trim();
+}
+
 // ─── Generate course structure ────────────────────────────────────────────────
 
 export interface CourseStructureParams {
@@ -149,9 +162,7 @@ Retourne UNIQUEMENT le JSON, sans texte avant ni après.`;
 
     // Extract JSON even if Claude wrapped it in markdown code fences
     try {
-      const start = fullText.indexOf('{');
-      const end = fullText.lastIndexOf('}');
-      const jsonText = start !== -1 && end > start ? fullText.slice(start, end + 1) : fullText.trim();
+      const jsonText = extractJsonBlock(fullText, '{');
       const parsed = JSON.parse(jsonText);
       sendSSE(res, 'done', { structure: parsed });
     } catch {
@@ -343,9 +354,7 @@ ${QUIZ_JSON_SCHEMA}`;
     .join('');
 
   // Strip markdown fences if present
-  const start = raw.indexOf('[');
-  const end = raw.lastIndexOf(']');
-  const jsonText = start !== -1 && end > start ? raw.slice(start, end + 1) : raw.trim();
+  const jsonText = extractJsonBlock(raw, '[');
 
   let questions: unknown[];
   try {
@@ -356,6 +365,263 @@ ${QUIZ_JSON_SCHEMA}`;
 
   return {
     questions: injectUUIDs(questions),
+    input_tokens: message.usage.input_tokens,
+    output_tokens: message.usage.output_tokens,
+  };
+}
+
+// ─── Generate feedback items ──────────────────────────────────────────────────
+
+export interface GenerateFeedbackParams {
+  feedbackName: string;
+  prompt: string;
+  itemCount?: number;
+}
+
+const FEEDBACK_ITEM_SCHEMA = `[
+  { "type": "text",     "name": "Votre prénom ?",           "required": true },
+  { "type": "multichoice", "name": "Niveau de difficulté ?", "required": true,  "options": ["Très facile", "Facile", "Difficile", "Très difficile"] },
+  { "type": "textarea", "name": "Commentaires libres ?",     "required": false }
+]`;
+
+export async function generateFeedbackItems(
+  params: GenerateFeedbackParams,
+): Promise<{ items: unknown[]; input_tokens: number; output_tokens: number }> {
+  const client = getClient();
+
+  const itemCount = params.itemCount ?? 5;
+
+  const systemPrompt = `${SYSTEM_BASE}
+
+Tu génères des items de sondage/questionnaire Moodle (module Feedback) au format JSON strict.
+Questionnaire : "${params.feedbackName}"
+Nombre d'items demandés : ${itemCount}
+
+Types d'items disponibles : text, textarea, multichoice, multichoice_rated, numeric, label, info, pagebreak
+- "text"             : champ texte court
+- "textarea"         : champ texte long
+- "multichoice"      : choix parmi options (propriété "options": ["..."])
+- "multichoice_rated": choix noté (propriété "options": ["..."])
+- "numeric"          : valeur numérique (propriétés "min" et "max")
+- "label"            : texte non interactif (titre de section)
+- "info"             : texte informatif
+- "pagebreak"        : saut de page
+
+Règles :
+- Retourne UNIQUEMENT un tableau JSON valide, sans texte avant ni après
+- Chaque item doit avoir : "type", "name" (intitulé), "required" (boolean)
+- Les items multichoice doivent avoir "options": ["..."]
+- Les items numeric doivent avoir "min" et "max"
+
+Format JSON attendu :
+${FEEDBACK_ITEM_SCHEMA}`;
+
+  const message = await client.messages.create({
+    model: MODEL,
+    max_tokens: 2048,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: params.prompt }],
+  });
+
+  const raw = message.content
+    .filter((b) => b.type === 'text')
+    .map((b) => (b as { type: 'text'; text: string }).text)
+    .join('');
+
+  const jsonText = extractJsonBlock(raw, '[');
+
+  let items: unknown[];
+  try {
+    items = JSON.parse(jsonText) as unknown[];
+  } catch {
+    throw new Error(`Claude did not return valid JSON: ${raw.slice(0, 200)}`);
+  }
+
+  // Inject IDs
+  const withIds = items.map((item: unknown) => {
+    const it = item as Record<string, unknown>;
+    return { ...it, id: `ai-fi-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}` };
+  });
+
+  return {
+    items: withIds,
+    input_tokens: message.usage.input_tokens,
+    output_tokens: message.usage.output_tokens,
+  };
+}
+
+// ─── Generate lesson pages ────────────────────────────────────────────────────
+
+export interface GenerateLessonParams {
+  lessonName: string;
+  prompt: string;
+  pageCount?: number;
+  pageTypes?: ('content' | 'multichoice' | 'truefalse' | 'shortanswer')[];
+}
+
+const LESSON_PAGE_SCHEMA = `[
+  {
+    "title": "Introduction",
+    "type": "content",
+    "content": "<h2>Introduction</h2><p>...</p>"
+  },
+  {
+    "title": "Question : Qu'est-ce que X ?",
+    "type": "multichoice",
+    "content": "<p>Qu'est-ce que X ?</p>",
+    "answers": [
+      { "text": "Réponse correcte", "correct": true,  "response": "Exact !", "jumpto": -1 },
+      { "text": "Réponse incorrecte", "correct": false, "response": "Pas tout à fait.",  "jumpto": 0 }
+    ]
+  },
+  {
+    "title": "Vrai ou Faux",
+    "type": "truefalse",
+    "content": "<p>Affirmation à évaluer.</p>",
+    "answers": [
+      { "text": "Vrai", "correct": true,  "response": "Correct !", "jumpto": -1 },
+      { "text": "Faux", "correct": false, "response": "Incorrect.", "jumpto": 0  }
+    ]
+  }
+]`;
+
+export async function generateLessonPages(
+  params: GenerateLessonParams,
+): Promise<{ pages: unknown[]; input_tokens: number; output_tokens: number }> {
+  const client = getClient();
+
+  const pageCount = params.pageCount ?? 5;
+  const pageTypes = (params.pageTypes ?? ['content', 'multichoice']).join(', ');
+
+  const systemPrompt = `${SYSTEM_BASE}
+
+Tu génères des pages de leçon Moodle (module Lesson) au format JSON strict.
+Leçon : "${params.lessonName}"
+Nombre de pages demandées : ${pageCount}
+Types de pages autorisés : ${pageTypes}
+
+Types de pages :
+- "content"     : page de contenu pur (pas de réponses), "content" contient du HTML pédagogique
+- "multichoice" : question à choix multiples, "answers" obligatoire avec au moins 2 réponses
+- "truefalse"   : vrai/faux, "answers" obligatoire avec EXACTEMENT 2 réponses (Vrai / Faux)
+- "shortanswer" : réponse courte, "answers" obligatoire avec au moins 1 réponse acceptée
+
+Règles :
+- Retourne UNIQUEMENT un tableau JSON valide, sans texte avant ni après
+- Chaque page a : "title" (string), "type", "content" (HTML), "answers" (si applicable)
+- "content" HTML : h2, h3, p, ul, ol, li, strong, em, hr uniquement — PAS de balises html/head/body/script
+- "answers[].jumpto" : -1 = page suivante, -2 = fin de leçon, 0 = cette page
+- Alterne entre pages de contenu et pages de questions pour un parcours interactif
+
+Format JSON attendu :
+${LESSON_PAGE_SCHEMA}`;
+
+  const message = await client.messages.create({
+    model: MODEL,
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: params.prompt }],
+  });
+
+  const raw = message.content
+    .filter((b) => b.type === 'text')
+    .map((b) => (b as { type: 'text'; text: string }).text)
+    .join('');
+
+  const jsonText = extractJsonBlock(raw, '[');
+
+  let pages: unknown[];
+  try {
+    pages = JSON.parse(jsonText) as unknown[];
+  } catch {
+    throw new Error(`Claude did not return valid JSON: ${raw.slice(0, 200)}`);
+  }
+
+  const withIds = pages.map((p: unknown) => {
+    const page = p as Record<string, unknown>;
+    const pageId = `ai-lp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const answers = Array.isArray(page['answers'])
+      ? (page['answers'] as unknown[]).map((a: unknown) => ({
+          ...(a as Record<string, unknown>),
+          id: `ai-la-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        }))
+      : [];
+    return { ...page, id: pageId, answers };
+  });
+
+  return {
+    pages: withIds,
+    input_tokens: message.usage.input_tokens,
+    output_tokens: message.usage.output_tokens,
+  };
+}
+
+// ─── Generate book chapters ───────────────────────────────────────────────────
+
+export interface GenerateBookParams {
+  bookName: string;
+  prompt: string;
+  chapterCount?: number;
+}
+
+const BOOK_CHAPTER_SCHEMA = `[
+  { "title": "Introduction",     "content": "<h2>Introduction</h2><p>...</p>", "subchapter": false },
+  { "title": "Concepts clés",    "content": "<p>...</p>",                      "subchapter": false },
+  { "title": "Sous-section 2.1", "content": "<p>...</p>",                      "subchapter": true  }
+]`;
+
+export async function generateBookChapters(
+  params: GenerateBookParams,
+): Promise<{ chapters: unknown[]; input_tokens: number; output_tokens: number }> {
+  const client = getClient();
+
+  const chapterCount = params.chapterCount ?? 6;
+
+  const systemPrompt = `${SYSTEM_BASE}
+
+Tu génères des chapitres de livre Moodle (module Book) au format JSON strict.
+Livre : "${params.bookName}"
+Nombre de chapitres demandés : ${chapterCount}
+
+Règles :
+- Retourne UNIQUEMENT un tableau JSON valide, sans texte avant ni après
+- Chaque chapitre a : "title" (string), "content" (HTML), "subchapter" (boolean)
+- "subchapter": true = sous-chapitre indenté (section d'un chapitre principal)
+- "content" HTML : h2, h3, p, ul, ol, li, strong, em, hr, table uniquement — PAS de balises html/head/body/script
+- Commence par un chapitre d'introduction, termine par une synthèse ou conclusion
+- Les sous-chapitres doivent suivre immédiatement leur chapitre parent
+
+Format JSON attendu :
+${BOOK_CHAPTER_SCHEMA}`;
+
+  const message = await client.messages.create({
+    model: MODEL,
+    max_tokens: 4096,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: params.prompt }],
+  });
+
+  const raw = message.content
+    .filter((b) => b.type === 'text')
+    .map((b) => (b as { type: 'text'; text: string }).text)
+    .join('');
+
+  const jsonText = extractJsonBlock(raw, '[');
+
+  let chapters: unknown[];
+  try {
+    chapters = JSON.parse(jsonText) as unknown[];
+  } catch {
+    throw new Error(`Claude did not return valid JSON: ${raw.slice(0, 200)}`);
+  }
+
+  const withIds = chapters.map((c: unknown) => ({
+    ...(c as Record<string, unknown>),
+    id: `ai-ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+  }));
+
+  return {
+    chapters: withIds,
     input_tokens: message.usage.input_tokens,
     output_tokens: message.usage.output_tokens,
   };

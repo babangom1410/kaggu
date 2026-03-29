@@ -9,7 +9,7 @@ async function getToken(): Promise<string> {
 
 export type SSECallback = (event: string, data: unknown) => void;
 
-async function streamPost(path: string, body: unknown, onEvent: SSECallback): Promise<void> {
+async function streamPost(path: string, body: unknown, onEvent: SSECallback, signal?: AbortSignal): Promise<void> {
   const token = await getToken();
 
   const res = await fetch(`${BASE}${path}`, {
@@ -19,6 +19,7 @@ async function streamPost(path: string, body: unknown, onEvent: SSECallback): Pr
       Authorization: `Bearer ${token}`,
     },
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!res.ok) {
@@ -65,14 +66,73 @@ export interface GenerateParams {
   courseContext?: string;
 }
 
-export function generateContent(params: GenerateParams, onEvent: SSECallback) {
-  return streamPost('/api/v1/llm/generate', params, onEvent);
+export function generateContent(params: GenerateParams, onEvent: SSECallback, signal?: AbortSignal) {
+  return streamPost('/api/v1/llm/generate', params, onEvent, signal);
 }
 
-export function generateCourseStructure(description: string, onEvent: SSECallback) {
-  return streamPost('/api/v1/llm/course-structure', { description }, onEvent);
+export function generateCourseStructure(description: string, onEvent: SSECallback, signal?: AbortSignal) {
+  return streamPost('/api/v1/llm/course-structure', { description }, onEvent, signal);
 }
 
-export function analyzeMindmap(mindmapSummary: string, onEvent: SSECallback) {
-  return streamPost('/api/v1/llm/analyze', { mindmapSummary }, onEvent);
+export function analyzeMindmap(mindmapSummary: string, onEvent: SSECallback, signal?: AbortSignal) {
+  return streamPost('/api/v1/llm/analyze', { mindmapSummary }, onEvent, signal);
+}
+
+export async function generateLesson(
+  lessonName: string,
+  prompt: string,
+  pageCount = 5,
+  pageTypes: ('content' | 'multichoice' | 'truefalse' | 'shortanswer')[] = ['content', 'multichoice'],
+): Promise<unknown[]> {
+  const token = await getToken();
+  const res = await fetch(`${BASE}/api/v1/llm/generate-lesson`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ lessonName, prompt, pageCount, pageTypes }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as Record<string, string>).error ?? res.statusText);
+  }
+  return ((await res.json()) as { data: unknown[] }).data;
+}
+
+export async function generateBook(
+  bookName: string,
+  prompt: string,
+  chapterCount = 6,
+): Promise<unknown[]> {
+  const token = await getToken();
+  const res = await fetch(`${BASE}/api/v1/llm/generate-book`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ bookName, prompt, chapterCount }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as Record<string, string>).error ?? res.statusText);
+  }
+  return ((await res.json()) as { data: unknown[] }).data;
+}
+
+export async function generateFeedback(
+  feedbackName: string,
+  prompt: string,
+  itemCount = 5,
+): Promise<unknown[]> {
+  const token = await getToken();
+  const res = await fetch(`${BASE}/api/v1/llm/generate-feedback`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ feedbackName, prompt, itemCount }),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error((err as Record<string, string>).error ?? res.statusText);
+  }
+  const json = await res.json() as { data: unknown[] };
+  return json.data;
 }

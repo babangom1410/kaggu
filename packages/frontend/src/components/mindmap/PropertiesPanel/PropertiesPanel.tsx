@@ -5,6 +5,7 @@ import { PageEditorModal } from '@/components/mindmap/PageEditorModal';
 import { QuizEditorModal } from '@/components/mindmap/QuizEditorModal';
 import { LessonEditorModal } from '@/components/mindmap/LessonEditorModal';
 import { FeedbackEditorModal } from '@/components/mindmap/FeedbackEditorModal';
+import { BookEditorModal } from '@/components/mindmap/BookEditorModal';
 import type { Restriction, MindmapNode, QuizQuestion } from '@/types/mindmap.types';
 
 const UNSUPPORTED_CONTENT_SUBTYPES = new Set(['assign', 'h5p', 'glossary', 'scorm', 'choice', 'file']);
@@ -330,6 +331,7 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
   const [chapterEditorOpen, setChapterEditorOpen] = useState<number | null>(null);
   const [quizEditorOpen, setQuizEditorOpen] = useState(false);
   const [lessonEditorOpen, setLessonEditorOpen] = useState(false);
+  const [bookEditorOpen, setBookEditorOpen] = useState(false);
   const [feedbackEditorOpen, setFeedbackEditorOpen] = useState(false);
   const node = nodes.find((n) => n.id === nodeId);
 
@@ -380,6 +382,14 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
         data={data}
         onUpdate={update}
         onClose={() => setLessonEditorOpen(false)}
+      />
+    )}
+    {bookEditorOpen && data.subtype === 'book' && (
+      <BookEditorModal
+        bookName={String(data.name ?? 'Livre')}
+        data={data}
+        onUpdate={update}
+        onClose={() => setBookEditorOpen(false)}
       />
     )}
     {feedbackEditorOpen && data.subtype === 'feedback' && (
@@ -656,12 +666,22 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                       <span className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
                         Chapitres{chapters.length > 0 ? ` (${chapters.length})` : ''}
                       </span>
-                      <button
-                        onClick={() => update('chapters', [...chapters, { id: genId(), title: 'Nouveau chapitre', content: '', subchapter: false }])}
-                        className="text-xs text-amber-400 hover:text-amber-300 font-medium transition-colors"
-                      >
-                        + Ajouter
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => update('chapters', [...chapters, { id: genId(), title: 'Nouveau chapitre', content: '', subchapter: false }])}
+                          className="text-xs text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                        >
+                          + Ajouter
+                        </button>
+                        <button
+                          onClick={() => setBookEditorOpen(true)}
+                          className="flex items-center gap-1 px-2 py-0.5 rounded-lg text-[10px] font-semibold
+                                     bg-amber-500/15 text-amber-400 border border-amber-500/20
+                                     hover:bg-amber-500/25 hover:text-amber-300 transition-colors"
+                        >
+                          📚 Éditeur IA
+                        </button>
+                      </div>
                     </div>
                     {chapters.length === 0 && (
                       <p className="text-xs text-slate-600 text-center py-2">Aucun chapitre — cliquez sur + Ajouter</p>
