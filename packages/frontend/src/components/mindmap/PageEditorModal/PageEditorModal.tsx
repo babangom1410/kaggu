@@ -22,6 +22,7 @@ export function PageEditorModal({ title, label = 'Contenu', content, onSave, onC
   // AI generation state
   const [aiOpen, setAiOpen] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
+  const aiTextareaRef = useRef<HTMLTextAreaElement>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiPreview, setAiPreview] = useState('');
   const [aiDone, setAiDone] = useState(false);
@@ -282,13 +283,20 @@ export function PageEditorModal({ title, label = 'Contenu', content, onSave, onC
           <div className="max-w-3xl mx-auto space-y-2">
             <div className="flex items-start gap-2">
               <textarea
+                ref={aiTextareaRef}
                 value={aiPrompt}
-                onChange={(e) => setAiPrompt(e.target.value)}
+                onChange={(e) => {
+                  setAiPrompt(e.target.value);
+                  const el = e.target;
+                  el.style.height = 'auto';
+                  el.style.height = `${el.scrollHeight}px`;
+                }}
                 onKeyDown={(e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) generateWithAI(); }}
                 placeholder="Décrivez le contenu à générer… (ex: Explique les boucles for en Python avec des exemples commentés)"
                 className="flex-1 bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 border
                            border-slate-700 focus:border-violet-500/60 focus:outline-none resize-none leading-relaxed"
                 rows={2}
+                style={{ minHeight: '4.5rem', maxHeight: '12rem', overflowY: 'auto' }}
                 autoFocus
                 disabled={aiLoading}
               />
