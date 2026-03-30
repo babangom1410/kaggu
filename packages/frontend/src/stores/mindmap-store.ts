@@ -42,7 +42,7 @@ interface MindmapState {
   onConnect: (connection: Connection) => void;
 
   // Node actions
-  addNode: (node: MindmapNode, parentId?: string) => void;
+  addNode: (node: MindmapNode, parentId?: string, sourceHandle?: string) => void;
   updateNode: (id: string, data: Partial<MindmapNodeData>) => void;
   deleteNode: (id: string) => void;
   duplicateNode: (id: string) => void;
@@ -144,15 +144,18 @@ export const useMindmapStore = create<MindmapState>()(
           markDirty();
         },
 
-        addNode: (node, parentId) => {
+        addNode: (node, parentId, sourceHandle) => {
           pushHistory();
           const newNodes = [...get().nodes, node];
           let newEdges = get().edges;
           if (parentId) {
-            newEdges = [
-              ...newEdges,
-              { id: generateEdgeId(parentId, node.id), source: parentId, target: node.id },
-            ];
+            const edge: MindmapEdge = {
+              id: generateEdgeId(parentId, node.id),
+              source: parentId,
+              target: node.id,
+              ...(sourceHandle ? { sourceHandle } : {}),
+            };
+            newEdges = [...newEdges, edge];
           }
           set({ nodes: newNodes, edges: newEdges });
           markDirty();

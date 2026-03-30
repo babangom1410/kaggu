@@ -27,6 +27,7 @@ const TYPE_META: Record<string, { label: string; icon: string; color: string; bg
   section: { label: 'Section', icon: '📂', color: 'text-emerald-400', bg: 'bg-emerald-500/10' },
   resource: { label: 'Ressource', icon: '📄', color: 'text-amber-400', bg: 'bg-amber-500/10' },
   activity: { label: 'Activité', icon: '📋', color: 'text-violet-400', bg: 'bg-violet-500/10' },
+  branch: { label: 'Conditionnel', icon: '🔀', color: 'text-amber-400', bg: 'bg-amber-500/10' },
 };
 
 interface FieldProps {
@@ -153,6 +154,40 @@ interface CompletionPanelProps {
   nodeId: string;
 }
 
+/** Returns true if adding a restriction from `depId` → `targetId` would create a cycle. */
+function wouldCreateCycle(depId: string, targetId: string, nodes: MindmapNode[]): boolean {
+  // Build adjacency: nodeId → set of nodeIds it depends on
+  const deps = new Map<string, Set<string>>();
+  for (const n of nodes) {
+    const d = n.data as unknown as Record<string, unknown>;
+    const restr = (d.restrictions ?? []) as Array<Record<string, unknown>>;
+    const set = new Set<string>();
+    for (const r of restr) {
+      if ((r.type === 'completion' || r.type === 'grade') && r.nodeId) {
+        set.add(String(r.nodeId));
+      }
+    }
+    deps.set(n.id, set);
+  }
+  // Temporarily add the new edge: targetId depends on depId
+  const existing = deps.get(targetId) ?? new Set<string>();
+  existing.add(depId);
+  deps.set(targetId, existing);
+
+  // DFS from targetId — if we reach targetId again, it's a cycle
+  const visited = new Set<string>();
+  function dfs(id: string): boolean {
+    if (id === targetId && visited.size > 0) return true;
+    if (visited.has(id)) return false;
+    visited.add(id);
+    for (const next of deps.get(id) ?? []) {
+      if (dfs(next)) return true;
+    }
+    return false;
+  }
+  return dfs(depId);
+}
+
 function CompletionPanel({ data, update, nodes, nodeId }: CompletionPanelProps) {
   const [completionOpen, setCompletionOpen] = useState(false);
   const [restrictionsOpen, setRestrictionsOpen] = useState(false);
@@ -166,9 +201,15 @@ function CompletionPanel({ data, update, nodes, nodeId }: CompletionPanelProps) 
 
   const addRestriction = (type: Restriction['type']) => {
     const base = [...restrictions];
-    if (type === 'date') base.push({ type: 'date', direction: '>=', date: '' });
-    else if (type === 'grade') base.push({ type: 'grade', nodeId: otherModules[0]?.id ?? '', min: 50 });
-    else base.push({ type: 'completion', nodeId: otherModules[0]?.id ?? '', expected: 1 });
+    if (type === 'date') {
+      base.push({ type: 'date', direction: '>=', date: '' });
+    } else if (type === 'grade') {
+      const safeId = otherModules.find((m) => !wouldCreateCycle(m.id, nodeId, nodes))?.id ?? '';
+      base.push({ type: 'grade', nodeId: safeId, min: 50 });
+    } else {
+      const safeId = otherModules.find((m) => !wouldCreateCycle(m.id, nodeId, nodes))?.id ?? '';
+      base.push({ type: 'completion', nodeId: safeId, expected: 1 });
+    }
     update('restrictions', base);
   };
 
@@ -253,15 +294,30 @@ function CompletionPanel({ data, update, nodes, nodeId }: CompletionPanelProps) 
                       className="flex-1 bg-slate-700 text-slate-200 text-xs rounded px-1.5 py-1 border border-slate-600" />
                   </div>
                 )}
-                {(r.type === 'grade' || r.type === 'completion') && (
-                  <select value={r.nodeId}
-                    onChange={(e) => updateRestriction(i, { nodeId: e.target.value })}
-                    className="w-full bg-slate-700 text-slate-200 text-xs rounded px-1.5 py-1 border border-slate-600">
-                    {otherModules.map((n: MindmapNode) => (
-                      <option key={n.id} value={n.id}>{nodeLabel(n.id)}</option>
-                    ))}
-                  </select>
-                )}
+                {(r.type === 'grade' || r.type === 'completion') && (() => {
+                  const cycleModules = new Set(
+                    otherModules.filter((m) => wouldCreateCycle(m.id, nodeId, nodes)).map((m) => m.id),
+                  );
+                  const hasCycle = r.nodeId && cycleModules.has(r.nodeId);
+                  return (
+                    <>
+                      <select value={r.nodeId}
+                        onChange={(e) => updateRestriction(i, { nodeId: e.target.value })}
+                        className={`w-full bg-slate-700 text-slate-200 text-xs rounded px-1.5 py-1 border ${hasCycle ? 'border-red-500' : 'border-slate-600'}`}>
+                        {otherModules.map((n: MindmapNode) => (
+                          <option key={n.id} value={n.id} disabled={cycleModules.has(n.id)}>
+                            {nodeLabel(n.id)}{cycleModules.has(n.id) ? ' ⚠ cycle' : ''}
+                          </option>
+                        ))}
+                      </select>
+                      {hasCycle && (
+                        <p className="text-[10px] text-red-400">
+                          ⚠ Dépendance circulaire détectée — cette restriction créerait un cycle.
+                        </p>
+                      )}
+                    </>
+                  );
+                })()}
                 {r.type === 'grade' && (
                   <div className="flex gap-1.5">
                     <input type="number" placeholder="Min %" value={r.min ?? ''}
@@ -534,6 +590,83 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
               onChange={(v) => update('visible', v)}
               label="Visible"
             />
+          </>
+        )}
+
+        {/* Branch node fields */}
+        {node.type === 'branch' && (
+          <>
+            <Field label="Libellé">
+              <TextInput
+                value={String(data.label ?? '')}
+                onChange={(v) => update('label', v)}
+                placeholder="ex. Score quiz > 50 ?"
+              />
+            </Field>
+            <Field label="Type de condition">
+              <select
+                value={String(data.conditionType ?? 'completion')}
+                onChange={(e) => update('conditionType', e.target.value)}
+                className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                           border border-slate-700 focus:border-indigo-500 focus:outline-none"
+              >
+                <option value="completion">Achèvement d'activité</option>
+                <option value="grade">Note minimale</option>
+                <option value="date">Date</option>
+              </select>
+            </Field>
+            {(data.conditionType === 'completion' || data.conditionType === 'grade') && (
+              <Field label="Activité de référence">
+                <select
+                  value={String(data.nodeId ?? '')}
+                  onChange={(e) => update('nodeId', e.target.value)}
+                  className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                             border border-slate-700 focus:border-indigo-500 focus:outline-none"
+                >
+                  <option value="">— Choisir —</option>
+                  {nodes.filter((n) => n.type === 'activity' || n.type === 'resource').map((n) => {
+                    const d = n.data as unknown as Record<string, unknown>;
+                    return (
+                      <option key={n.id} value={n.id}>
+                        {String(d.name ?? n.id)}
+                      </option>
+                    );
+                  })}
+                </select>
+              </Field>
+            )}
+            {data.conditionType === 'grade' && (
+              <Field label="Note minimale (%)">
+                <TextInput
+                  value={String(data.gradeMin ?? '')}
+                  onChange={(v) => update('gradeMin', v ? Number(v) : undefined)}
+                  placeholder="ex. 50"
+                />
+              </Field>
+            )}
+            {data.conditionType === 'date' && (
+              <Field label="Date de référence">
+                <input
+                  type="date"
+                  value={String(data.date ?? '')}
+                  onChange={(e) => update('date', e.target.value)}
+                  className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
+                             border border-slate-700 focus:border-indigo-500 focus:outline-none"
+                />
+              </Field>
+            )}
+            <div className="bg-slate-800/60 rounded-xl p-3 space-y-1.5 text-xs text-slate-400">
+              <p className="font-semibold text-slate-300 flex items-center gap-1.5">🔀 Nœud conditionnel</p>
+              <p>Les apprenants suivent la branche <span className="text-emerald-400 font-semibold">OUI (→ droite)</span> si la condition est remplie, sinon la branche <span className="text-red-400 font-semibold">NON (↓ bas)</span>.</p>
+              <p className="text-slate-500">Ce nœud est converti en restrictions Moodle lors de l'export.</p>
+            </div>
+            <button
+              onClick={handleDelete}
+              className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-red-400 border border-red-500/20
+                         hover:bg-red-500/10 transition-colors"
+            >
+              🗑 Supprimer ce nœud conditionnel
+            </button>
           </>
         )}
 

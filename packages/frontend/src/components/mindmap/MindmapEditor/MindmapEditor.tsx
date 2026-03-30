@@ -146,23 +146,26 @@ export function MindmapEditor() {
   }, []);
 
   const addChildNode = useCallback(
-    (parentId: string, type: string, data: MindmapNode['data']) => {
+    (parentId: string, type: string, data: MindmapNode['data'], sourceHandle?: string) => {
       if (!rfInstance) return;
 
       const parentNode = nodes.find((n) => n.id === parentId);
       if (!parentNode) return;
 
-      const childCount = edges.filter((e) => e.source === parentId).length;
-      const xOffset = (childCount - 1) * 220;
+      const childCount = edges.filter((e) => e.source === parentId && (!sourceHandle || e.sourceHandle === sourceHandle)).length;
+      // Branch true branch goes right, false branch goes down
+      const xOffset = sourceHandle === 'source-true' ? 260 : (childCount - 1) * 220;
+      const yOffset = sourceHandle === 'source-false' ? 160 : 200;
 
       addNode(
         {
           id: generateNodeId(),
           type,
-          position: { x: parentNode.position.x + xOffset, y: parentNode.position.y + 200 },
+          position: { x: parentNode.position.x + xOffset, y: parentNode.position.y + yOffset },
           data,
         },
         parentId,
+        sourceHandle,
       );
       setContextMenu(null);
     },
@@ -281,9 +284,59 @@ export function MindmapEditor() {
           onClick: () =>
             addChildNode(nodeId, 'activity', { subtype: 'choice', name: 'Nouveau choix', allowupdate: true, showresults: 1, visible: true }),
         },
+        { type: 'separator', label: 'Parcours' },
+        {
+          label: 'Nœud conditionnel',
+          icon: '🔀',
+          color: 'text-amber-600',
+          onClick: () =>
+            addChildNode(nodeId, 'branch', { label: 'Condition', conditionType: 'completion' }),
+        },
         { type: 'separator', label: '' },
         {
           label: 'Supprimer la section',
+          icon: '🗑️',
+          color: 'text-red-500',
+          onClick: () => { deleteNode(nodeId); setSelectedNode(null); setContextMenu(null); },
+        },
+      ];
+    }
+
+    if (nodeType === 'branch') {
+      return [
+        { type: 'separator', label: 'Branche OUI' },
+        {
+          label: 'Activité (OUI)',
+          icon: '📋',
+          color: 'text-emerald-600',
+          onClick: () =>
+            addChildNode(nodeId, 'activity', { subtype: 'assign', name: 'Devoir (si OUI)', maxgrade: 100, submissiontype: 'file', visible: true }, 'source-true'),
+        },
+        {
+          label: 'Quiz (OUI)',
+          icon: '❓',
+          color: 'text-emerald-600',
+          onClick: () =>
+            addChildNode(nodeId, 'activity', { subtype: 'quiz', name: 'Quiz (si OUI)', visible: true }, 'source-true'),
+        },
+        { type: 'separator', label: 'Branche NON' },
+        {
+          label: 'Activité (NON)',
+          icon: '📋',
+          color: 'text-red-500',
+          onClick: () =>
+            addChildNode(nodeId, 'activity', { subtype: 'assign', name: 'Devoir (si NON)', maxgrade: 100, submissiontype: 'file', visible: true }, 'source-false'),
+        },
+        {
+          label: 'Quiz (NON)',
+          icon: '❓',
+          color: 'text-red-500',
+          onClick: () =>
+            addChildNode(nodeId, 'activity', { subtype: 'quiz', name: 'Quiz (si NON)', visible: true }, 'source-false'),
+        },
+        { type: 'separator', label: '' },
+        {
+          label: 'Supprimer',
           icon: '🗑️',
           color: 'text-red-500',
           onClick: () => { deleteNode(nodeId); setSelectedNode(null); setContextMenu(null); },
@@ -352,6 +405,7 @@ export function MindmapEditor() {
               case 'section': return '#10B981';
               case 'resource': return '#F59E0B';
               case 'activity': return '#8B5CF6';
+              case 'branch': return '#F59E0B';
               default: return '#94a3b8';
             }
           }}

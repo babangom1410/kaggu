@@ -280,14 +280,6 @@ export type ActivitySubtype = 'assign' | 'quiz' | 'forum' | 'h5p' | 'glossary' |
 
 export type ActivityNodeData = AssignActivityData | QuizActivityData | ForumActivityData | H5PActivityData | GlossaryActivityData | ScormActivityData | LessonActivityData | ChoiceActivityData | FeedbackActivityData;
 
-// --- Union types ---
-
-export type MindmapNodeData =
-  | CourseNodeData
-  | SectionNodeData
-  | ResourceNodeData
-  | ActivityNodeData;
-
 // --- Completion & restrictions (shared by resource + activity nodes) ---
 
 export interface CompletionSettings {
@@ -308,7 +300,24 @@ export interface RestrictionsSettings {
   restrictionOperator?: '&' | '|';
 }
 
-export type MindmapNodeType = 'course' | 'section' | 'resource' | 'activity';
+// --- Branch node (conditional routing) ---
+
+export interface BranchNodeData {
+  label: string;        // condition description (e.g. "Quiz > 50%")
+  conditionType: 'grade' | 'completion' | 'date';
+  nodeId?: string;      // referenced activity/resource (grade or completion)
+  gradeMin?: number;    // threshold for grade condition
+  date?: string;        // ISO date for date condition
+}
+
+export type MindmapNodeType = 'course' | 'section' | 'resource' | 'activity' | 'branch';
+
+export type MindmapNodeData =
+  | CourseNodeData
+  | SectionNodeData
+  | ResourceNodeData
+  | ActivityNodeData
+  | BranchNodeData;
 
 export type MindmapNode = Node<MindmapNodeData>;
 export type MindmapEdge = Edge;
