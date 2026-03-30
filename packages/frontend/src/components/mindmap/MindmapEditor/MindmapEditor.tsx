@@ -108,47 +108,33 @@ export function MindmapEditor() {
           labelBgPadding: [4, 4] as [number, number],
         };
       }
-      // Outgoing true branch: green
+      // Outgoing true branch: green (label already on BranchNode handle)
       if (branchIds.has(e.source) && e.sourceHandle === 'source-true') {
-        return {
-          ...e,
-          type: 'smoothstep',
-          style: { stroke: '#10b981', strokeWidth: 2 },
-          label: 'OUI',
-          labelStyle: { fontSize: 10, fill: '#10b981', fontWeight: 700 },
-          labelBgStyle: { fill: '#d1fae5', fillOpacity: 0.9, borderRadius: 4 },
-          labelBgPadding: [3, 4] as [number, number],
-        };
+        return { ...e, type: 'smoothstep', style: { stroke: '#10b981', strokeWidth: 2 } };
       }
-      // Outgoing false branch: red
+      // Outgoing false branch: red (label already on BranchNode handle)
       if (branchIds.has(e.source) && e.sourceHandle === 'source-false') {
-        return {
-          ...e,
-          type: 'smoothstep',
-          style: { stroke: '#f87171', strokeWidth: 2 },
-          label: 'NON',
-          labelStyle: { fontSize: 10, fill: '#ef4444', fontWeight: 700 },
-          labelBgStyle: { fill: '#fee2e2', fillOpacity: 0.9, borderRadius: 4 },
-          labelBgPadding: [3, 4] as [number, number],
-        };
+        return { ...e, type: 'smoothstep', style: { stroke: '#f87171', strokeWidth: 2 } };
       }
       return e;
     });
   }, [edges, nodes]);
 
-  // Virtual edges for restriction dependencies (dashed, amber, read-only)
+  // Virtual edges for manually-added restriction dependencies (dashed amber, read-only)
+  // Branch-derived restrictions are already expressed by the colored OUI/NON structural edges.
   const restrictionEdges = useMemo(() => {
     const result: Edge[] = [];
 
-    // 1. Restrictions stored in node.data (manually added via CompletionPanel)
+    // IDs of nodes that are direct children of a branch node — their restriction
+    // is already shown by the colored OUI/NON structural edges, skip them here.
     const branchChildIds = new Set(
-      edges.filter((e) => {
-        const src = nodes.find((n) => n.id === e.source);
-        return src?.type === 'branch';
-      }).map((e) => e.target),
+      edges
+        .filter((e) => nodes.find((n) => n.id === e.source)?.type === 'branch')
+        .map((e) => e.target),
     );
+
     for (const node of nodes) {
-      if (branchChildIds.has(node.id)) continue; // handled below to avoid duplication
+      if (branchChildIds.has(node.id)) continue;
       const d = node.data as unknown as Record<string, unknown>;
       const restrictions = Array.isArray(d.restrictions) ? d.restrictions as Array<Record<string, unknown>> : [];
       restrictions.forEach((r, i) => {
@@ -166,34 +152,6 @@ export function MindmapEditor() {
           });
         }
       });
-    }
-
-    // 2. Branch-derived restriction edges: reference activity → branch children
-    //    Always derived from graph structure — works even on existing nodes
-    for (const branchNode of nodes.filter((n) => n.type === 'branch')) {
-      const refEdge = edges.find((e) => e.target === branchNode.id);
-      if (!refEdge) continue;
-      const refId = refEdge.source;
-
-      for (const childEdge of edges.filter((e) => e.source === branchNode.id)) {
-        const isTrue = childEdge.sourceHandle === 'source-true';
-        result.push({
-          id: `branch-restriction-${branchNode.id}-${childEdge.target}`,
-          source: refId,
-          target: childEdge.target,
-          type: 'smoothstep',
-          style: {
-            stroke: isTrue ? '#10b981' : '#f87171',
-            strokeDasharray: '5,4',
-            strokeWidth: 1.5,
-            opacity: 0.8,
-          },
-          label: isTrue ? '✅ si complété' : '🚫 si non complété',
-          labelStyle: { fontSize: 9, fill: isTrue ? '#10b981' : '#ef4444', fontWeight: 600 },
-          labelBgStyle: { fill: 'white', fillOpacity: 0.9 },
-          deletable: false,
-        });
-      }
     }
 
     return result;
