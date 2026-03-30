@@ -139,7 +139,16 @@ export function MindmapEditor() {
   // Virtual edges for restriction dependencies (dashed, amber, read-only)
   const restrictionEdges = useMemo(() => {
     const result: Edge[] = [];
+
+    // 1. Restrictions stored in node.data (manually added via CompletionPanel)
+    const branchChildIds = new Set(
+      edges.filter((e) => {
+        const src = nodes.find((n) => n.id === e.source);
+        return src?.type === 'branch';
+      }).map((e) => e.target),
+    );
     for (const node of nodes) {
+      if (branchChildIds.has(node.id)) continue; // handled below to avoid duplication
       const d = node.data as unknown as Record<string, unknown>;
       const restrictions = Array.isArray(d.restrictions) ? d.restrictions as Array<Record<string, unknown>> : [];
       restrictions.forEach((r, i) => {
@@ -158,8 +167,37 @@ export function MindmapEditor() {
         }
       });
     }
+
+    // 2. Branch-derived restriction edges: reference activity → branch children
+    //    Always derived from graph structure — works even on existing nodes
+    for (const branchNode of nodes.filter((n) => n.type === 'branch')) {
+      const refEdge = edges.find((e) => e.target === branchNode.id);
+      if (!refEdge) continue;
+      const refId = refEdge.source;
+
+      for (const childEdge of edges.filter((e) => e.source === branchNode.id)) {
+        const isTrue = childEdge.sourceHandle === 'source-true';
+        result.push({
+          id: `branch-restriction-${branchNode.id}-${childEdge.target}`,
+          source: refId,
+          target: childEdge.target,
+          type: 'smoothstep',
+          style: {
+            stroke: isTrue ? '#10b981' : '#f87171',
+            strokeDasharray: '5,4',
+            strokeWidth: 1.5,
+            opacity: 0.8,
+          },
+          label: isTrue ? '✅ si complété' : '🚫 si non complété',
+          labelStyle: { fontSize: 9, fill: isTrue ? '#10b981' : '#ef4444', fontWeight: 600 },
+          labelBgStyle: { fill: 'white', fillOpacity: 0.9 },
+          deletable: false,
+        });
+      }
+    }
+
     return result;
-  }, [nodes]);
+  }, [nodes, edges]);
   const reactFlowRef = useRef<HTMLDivElement>(null);
   const [rfInstance, setRfInstance] = useState<ReactFlowInstance | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
@@ -201,28 +239,17 @@ export function MindmapEditor() {
 
       // Inject access restriction when adding a child to a branch node
       if (parentNode.type === 'branch' && (sourceHandle === 'source-true' || sourceHandle === 'source-false')) {
-        const branchData = parentNode.data as unknown as Record<string, unknown>;
-        const conditionType = String(branchData.conditionType ?? 'completion');
-        const gradeMin = Number(branchData.gradeMin ?? 50);
-
-        // The reference node is the parent of the branch node
+        // The reference node is the parent of the branch node (the activity/resource it's attached to)
         const refEdge = edges.find((e) => e.target === parentId);
         const refNodeId = refEdge?.source;
 
         if (refNodeId) {
-          let restriction: Restriction;
-          if (conditionType === 'grade') {
-            restriction = sourceHandle === 'source-true'
-              ? { type: 'grade', nodeId: refNodeId, min: gradeMin }
-              : { type: 'grade', nodeId: refNodeId, max: gradeMin - 1 };
-          } else {
-            restriction = {
-              type: 'completion',
-              nodeId: refNodeId,
-              expected: sourceHandle === 'source-true' ? 1 : 0,
-            };
-          }
-          const existing = (data as unknown as Record<string, unknown>);
+          const restriction: Restriction = {
+            type: 'completion',
+            nodeId: refNodeId,
+            expected: sourceHandle === 'source-true' ? 1 : 0,
+          };
+          const existing = data as unknown as Record<string, unknown>;
           nodeData = {
             ...data,
             restrictions: [...((existing.restrictions ?? []) as Restriction[]), restriction],
