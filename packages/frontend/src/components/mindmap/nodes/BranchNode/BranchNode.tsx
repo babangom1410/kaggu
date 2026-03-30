@@ -5,7 +5,6 @@ import type { BranchNodeData } from '@/types/mindmap.types';
 const CONDITION_ICON: Record<BranchNodeData['conditionType'], string> = {
   grade: '⭐',
   completion: '✅',
-  date: '📅',
 };
 
 function BranchNodeComponent({ data, selected }: NodeProps<BranchNodeData>) {

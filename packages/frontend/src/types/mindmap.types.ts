@@ -303,11 +303,9 @@ export interface RestrictionsSettings {
 // --- Branch node (conditional routing) ---
 
 export interface BranchNodeData {
-  label: string;        // condition description (e.g. "Quiz > 50%")
-  conditionType: 'grade' | 'completion' | 'date';
-  nodeId?: string;      // referenced activity/resource (grade or completion)
-  gradeMin?: number;    // threshold for grade condition
-  date?: string;        // ISO date for date condition
+  label: string;          // condition description shown on node
+  conditionType: 'grade' | 'completion';
+  gradeMin?: number;      // threshold for grade condition (0-100)
 }
 
 export type MindmapNodeType = 'course' | 'section' | 'resource' | 'activity' | 'branch';

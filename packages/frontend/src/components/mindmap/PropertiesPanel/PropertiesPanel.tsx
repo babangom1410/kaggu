@@ -594,81 +594,73 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
         )}
 
         {/* Branch node fields */}
-        {node.type === 'branch' && (
-          <>
-            <Field label="Libellé">
-              <TextInput
-                value={String(data.label ?? '')}
-                onChange={(v) => update('label', v)}
-                placeholder="ex. Score quiz > 50 ?"
-              />
-            </Field>
-            <Field label="Type de condition">
-              <select
-                value={String(data.conditionType ?? 'completion')}
-                onChange={(e) => update('conditionType', e.target.value)}
-                className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
-                           border border-slate-700 focus:border-indigo-500 focus:outline-none"
-              >
-                <option value="completion">Achèvement d'activité</option>
-                <option value="grade">Note minimale</option>
-                <option value="date">Date</option>
-              </select>
-            </Field>
-            {(data.conditionType === 'completion' || data.conditionType === 'grade') && (
-              <Field label="Activité de référence">
+        {node.type === 'branch' && (() => {
+          const { edges: allEdges } = useMindmapStore.getState();
+          const parentEdge = allEdges.find((e) => e.target === nodeId);
+          const parentNode = parentEdge ? nodes.find((n) => n.id === parentEdge.source) : null;
+          const parentData = parentNode?.data as unknown as Record<string, unknown> | undefined;
+          const parentName = parentData ? String(parentData.name ?? parentData.fullname ?? parentNode?.id) : null;
+
+          return (
+            <>
+              {parentNode && (
+                <div className="flex items-center gap-2.5 bg-slate-800/60 rounded-xl px-3 py-2.5">
+                  <span className="text-base leading-none">
+                    {parentNode.type === 'activity' ? '📋' : '📄'}
+                  </span>
+                  <div>
+                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                      Activité de référence
+                    </div>
+                    <div className="text-sm font-medium text-slate-200">{parentName}</div>
+                  </div>
+                </div>
+              )}
+              <Field label="Libellé">
+                <TextInput
+                  value={String(data.label ?? '')}
+                  onChange={(v) => update('label', v)}
+                  placeholder="ex. Score > 50 % ?"
+                />
+              </Field>
+              <Field label="Type de condition">
                 <select
-                  value={String(data.nodeId ?? '')}
-                  onChange={(e) => update('nodeId', e.target.value)}
+                  value={String(data.conditionType ?? 'completion')}
+                  onChange={(e) => update('conditionType', e.target.value)}
                   className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
                              border border-slate-700 focus:border-indigo-500 focus:outline-none"
                 >
-                  <option value="">— Choisir —</option>
-                  {nodes.filter((n) => n.type === 'activity' || n.type === 'resource').map((n) => {
-                    const d = n.data as unknown as Record<string, unknown>;
-                    return (
-                      <option key={n.id} value={n.id}>
-                        {String(d.name ?? n.id)}
-                      </option>
-                    );
-                  })}
+                  <option value="completion">Activité complétée</option>
+                  <option value="grade">Note minimale atteinte</option>
                 </select>
               </Field>
-            )}
-            {data.conditionType === 'grade' && (
-              <Field label="Note minimale (%)">
-                <TextInput
-                  value={String(data.gradeMin ?? '')}
-                  onChange={(v) => update('gradeMin', v ? Number(v) : undefined)}
-                  placeholder="ex. 50"
-                />
-              </Field>
-            )}
-            {data.conditionType === 'date' && (
-              <Field label="Date de référence">
-                <input
-                  type="date"
-                  value={String(data.date ?? '')}
-                  onChange={(e) => update('date', e.target.value)}
-                  className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
-                             border border-slate-700 focus:border-indigo-500 focus:outline-none"
-                />
-              </Field>
-            )}
-            <div className="bg-slate-800/60 rounded-xl p-3 space-y-1.5 text-xs text-slate-400">
-              <p className="font-semibold text-slate-300 flex items-center gap-1.5">🔀 Nœud conditionnel</p>
-              <p>Les apprenants suivent la branche <span className="text-emerald-400 font-semibold">OUI (→ droite)</span> si la condition est remplie, sinon la branche <span className="text-red-400 font-semibold">NON (↓ bas)</span>.</p>
-              <p className="text-slate-500">Ce nœud est converti en restrictions Moodle lors de l'export.</p>
-            </div>
-            <button
-              onClick={handleDelete}
-              className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-red-400 border border-red-500/20
-                         hover:bg-red-500/10 transition-colors"
-            >
-              🗑 Supprimer ce nœud conditionnel
-            </button>
-          </>
-        )}
+              {data.conditionType === 'grade' && (
+                <Field label="Note minimale (%)">
+                  <TextInput
+                    value={String(data.gradeMin ?? '')}
+                    onChange={(v) => update('gradeMin', v ? Number(v) : undefined)}
+                    placeholder="ex. 50"
+                  />
+                </Field>
+              )}
+              <div className="bg-slate-800/60 rounded-xl p-3 space-y-1.5 text-xs text-slate-400">
+                <p className="font-semibold text-slate-300 flex items-center gap-1.5">🔀 Parcours conditionnel</p>
+                <p>
+                  Branche <span className="text-emerald-400 font-semibold">OUI →</span> si la condition est remplie.
+                  Branche <span className="text-red-400 font-semibold">NON ↓</span> sinon.
+                </p>
+                <p className="text-slate-500">Clic droit sur ce nœud pour ajouter des ressources/activités sur chaque branche.</p>
+              </div>
+              <button
+                onClick={handleDelete}
+                className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-red-400 border border-red-500/20
+                           hover:bg-red-500/10 transition-colors"
+              >
+                🗑 Supprimer ce nœud conditionnel
+              </button>
+            </>
+          );
+        })()}
 
         {/* Resource fields */}
         {node.type === 'resource' && (
