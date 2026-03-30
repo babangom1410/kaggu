@@ -91,6 +91,51 @@ export function MindmapEditor() {
     [nodes, hiddenNodeIds],
   );
 
+  // Style edges connected to/from branch nodes
+  const styledEdges = useMemo(() => {
+    const branchIds = new Set(nodes.filter((n) => n.type === 'branch').map((n) => n.id));
+    return edges.map((e) => {
+      // Incoming edge: activity/resource → branch node (amber dashed, animated)
+      if (branchIds.has(e.target)) {
+        return {
+          ...e,
+          type: 'smoothstep',
+          animated: true,
+          style: { stroke: '#f59e0b', strokeWidth: 2, strokeDasharray: '6,3' },
+          label: '🔀',
+          labelStyle: { fontSize: 12 },
+          labelBgStyle: { fill: '#fef3c7', fillOpacity: 0.9, borderRadius: 4 },
+          labelBgPadding: [4, 4] as [number, number],
+        };
+      }
+      // Outgoing true branch: green
+      if (branchIds.has(e.source) && e.sourceHandle === 'source-true') {
+        return {
+          ...e,
+          type: 'smoothstep',
+          style: { stroke: '#10b981', strokeWidth: 2 },
+          label: 'OUI',
+          labelStyle: { fontSize: 10, fill: '#10b981', fontWeight: 700 },
+          labelBgStyle: { fill: '#d1fae5', fillOpacity: 0.9, borderRadius: 4 },
+          labelBgPadding: [3, 4] as [number, number],
+        };
+      }
+      // Outgoing false branch: red
+      if (branchIds.has(e.source) && e.sourceHandle === 'source-false') {
+        return {
+          ...e,
+          type: 'smoothstep',
+          style: { stroke: '#f87171', strokeWidth: 2 },
+          label: 'NON',
+          labelStyle: { fontSize: 10, fill: '#ef4444', fontWeight: 700 },
+          labelBgStyle: { fill: '#fee2e2', fillOpacity: 0.9, borderRadius: 4 },
+          labelBgPadding: [3, 4] as [number, number],
+        };
+      }
+      return e;
+    });
+  }, [edges, nodes]);
+
   // Virtual edges for restriction dependencies (dashed, amber, read-only)
   const restrictionEdges = useMemo(() => {
     const result: Edge[] = [];
@@ -349,7 +394,7 @@ export function MindmapEditor() {
     <div ref={reactFlowRef} className="relative w-full h-full bg-slate-100">
       <ReactFlow
         nodes={displayNodes}
-        edges={[...edges, ...restrictionEdges].map((e) =>
+        edges={[...styledEdges, ...restrictionEdges].map((e) =>
           hiddenNodeIds.has(e.target) || hiddenNodeIds.has(e.source) ? { ...e, hidden: true } : e
         )}
         onNodesChange={onNodesChange}
