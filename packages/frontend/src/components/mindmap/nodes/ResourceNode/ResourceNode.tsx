@@ -1,6 +1,7 @@
 import { memo } from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import type { ResourceNodeData } from '@/types/mindmap.types';
+import { useMindmapStore } from '@/stores/mindmap-store';
 
 const SUBTYPE_META: Record<string, { icon: string; label: string }> = {
   file: { icon: '📄', label: 'Fichier' },
@@ -15,8 +16,11 @@ const SUBTYPE_META_RESOURCE: Record<string, { icon: string; label: string }> = {
   book:     { icon: '📚', label: 'Livre' },
 };
 
-function ResourceNodeComponent({ data, selected }: NodeProps<ResourceNodeData>) {
+function ResourceNodeComponent({ id, data, selected }: NodeProps<ResourceNodeData>) {
   const meta = SUBTYPE_META_RESOURCE[data.subtype] ?? { icon: '📄', label: data.subtype };
+  const hasBranchChild = useMindmapStore((s) =>
+    s.edges.some((e) => e.source === id && s.nodes.find((n) => n.id === e.target)?.type === 'branch'),
+  );
   const d = data as unknown as Record<string, unknown>;
   const completion = Number(d.completion ?? 0);
   const hasRestrictions = Array.isArray(d.restrictions) && (d.restrictions as unknown[]).length > 0;
@@ -70,6 +74,13 @@ function ResourceNodeComponent({ data, selected }: NodeProps<ResourceNodeData>) 
           position={Position.Top}
           className="!w-2.5 !h-2.5 !bg-amber-400 !border-2 !border-white !shadow-sm"
         />
+        {hasBranchChild && (
+          <Handle
+            type="source"
+            position={Position.Bottom}
+            className="!w-2.5 !h-2.5 !bg-amber-400 !border-2 !border-white !shadow-sm"
+          />
+        )}
       </div>
     </div>
   );

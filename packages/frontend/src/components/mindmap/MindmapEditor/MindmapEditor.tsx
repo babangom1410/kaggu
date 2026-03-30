@@ -340,23 +340,34 @@ export function MindmapEditor() {
     }
 
     if (nodeType === 'branch') {
-      const branchItems = (handle: 'source-true' | 'source-false', suffix: string): MenuEntry[] => [
-        { type: 'separator', label: `Ressources — ${suffix}` },
-        { label: `Fichier`, icon: '📄', color: 'text-amber-600', onClick: () => addChildNode(nodeId, 'resource', { subtype: 'file', name: 'Fichier', visible: true }, handle) },
-        { label: `URL`, icon: '🔗', color: 'text-amber-600', onClick: () => addChildNode(nodeId, 'resource', { subtype: 'url', name: 'URL', url: '', visible: true }, handle) },
-        { label: `Page`, icon: '📝', color: 'text-amber-600', onClick: () => addChildNode(nodeId, 'resource', { subtype: 'page', name: 'Page', content: '', visible: true }, handle) },
-        { label: `Livre`, icon: '📚', color: 'text-amber-600', onClick: () => addChildNode(nodeId, 'resource', { subtype: 'book', name: 'Livre', numbering: 1, visible: true }, handle) },
-        { type: 'separator', label: `Activités — ${suffix}` },
-        { label: `Devoir`, icon: '📋', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'assign', name: 'Devoir', maxgrade: 100, submissiontype: 'file', visible: true }, handle) },
-        { label: `Quiz`, icon: '❓', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'quiz', name: 'Quiz', visible: true }, handle) },
-        { label: `Forum`, icon: '💬', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'forum', name: 'Forum', type: 'general', visible: true }, handle) },
-        { label: `H5P`, icon: '🎮', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'h5p', name: 'H5P', enabletracking: true, grademethod: 1, visible: true }, handle) },
-        { label: `Leçon`, icon: '📘', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'lesson', name: 'Leçon', maxattempts: 0, visible: true }, handle) },
-        { label: `Feedback`, icon: '📊', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'feedback', name: 'Feedback', visible: true }, handle) },
-      ];
+      const trueChild = edges.some((e) => e.source === nodeId && e.sourceHandle === 'source-true');
+      const falseChild = edges.some((e) => e.source === nodeId && e.sourceHandle === 'source-false');
+
+      const branchItems = (handle: 'source-true' | 'source-false', filled: boolean, suffix: string): MenuEntry[] => {
+        if (filled) {
+          return [
+            { type: 'separator', label: `${suffix} — déjà défini` },
+          ];
+        }
+        return [
+          { type: 'separator', label: `Ressources — ${suffix}` },
+          { label: 'Fichier', icon: '📄', color: 'text-amber-600', onClick: () => addChildNode(nodeId, 'resource', { subtype: 'file', name: 'Fichier', visible: true }, handle) },
+          { label: 'URL', icon: '🔗', color: 'text-amber-600', onClick: () => addChildNode(nodeId, 'resource', { subtype: 'url', name: 'URL', url: '', visible: true }, handle) },
+          { label: 'Page', icon: '📝', color: 'text-amber-600', onClick: () => addChildNode(nodeId, 'resource', { subtype: 'page', name: 'Page', content: '', visible: true }, handle) },
+          { label: 'Livre', icon: '📚', color: 'text-amber-600', onClick: () => addChildNode(nodeId, 'resource', { subtype: 'book', name: 'Livre', numbering: 1, visible: true }, handle) },
+          { type: 'separator', label: `Activités — ${suffix}` },
+          { label: 'Devoir', icon: '📋', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'assign', name: 'Devoir', maxgrade: 100, submissiontype: 'file', visible: true }, handle) },
+          { label: 'Quiz', icon: '❓', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'quiz', name: 'Quiz', visible: true }, handle) },
+          { label: 'Forum', icon: '💬', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'forum', name: 'Forum', type: 'general', visible: true }, handle) },
+          { label: 'H5P', icon: '🎮', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'h5p', name: 'H5P', enabletracking: true, grademethod: 1, visible: true }, handle) },
+          { label: 'Leçon', icon: '📘', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'lesson', name: 'Leçon', maxattempts: 0, visible: true }, handle) },
+          { label: 'Feedback', icon: '📊', color: 'text-violet-600', onClick: () => addChildNode(nodeId, 'activity', { subtype: 'feedback', name: 'Feedback', visible: true }, handle) },
+        ];
+      };
+
       return [
-        ...branchItems('source-true', 'OUI ✓'),
-        ...branchItems('source-false', 'NON ✗'),
+        ...branchItems('source-true', trueChild, 'OUI ✓'),
+        ...branchItems('source-false', falseChild, 'NON ✗'),
         { type: 'separator', label: '' },
         { label: 'Supprimer', icon: '🗑️', color: 'text-red-500', onClick: () => { deleteNode(nodeId); setSelectedNode(null); setContextMenu(null); } },
       ];
