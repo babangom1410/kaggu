@@ -21,9 +21,13 @@ import {
 
 interface BackendNode {
   id: string;
-  type: 'course' | 'section' | 'resource' | 'activity';
+  type: 'course' | 'section' | 'resource' | 'activity' | 'branch';
   position: { x: number; y: number };
   data: Record<string, unknown>;
+}
+
+interface BackendEdgeWithHandle extends BackendEdge {
+  sourceHandle?: string;
 }
 
 interface BackendEdge {
@@ -468,6 +472,89 @@ function detectCircularRestrictions(nodes: BackendNode[]): string[] {
   return cycles;
 }
 
+/**
+ * Collect all exportable module nodes for a section, including nodes that are
+ * children of branch nodes attached to activities in that section.
+ * Branch nodes themselves are skipped (they have no Moodle equivalent).
+ */
+function collectSectionModules(
+  sectionId: string,
+  edges: BackendEdgeWithHandle[],
+  nodes: BackendNode[],
+): BackendNode[] {
+  const result: BackendNode[] = [];
+
+  // Direct children of the section (should be resource/activity nodes)
+  const sectionChildren = getChildren(sectionId, edges, nodes).filter(
+    (n) => n.type === 'resource' || n.type === 'activity',
+  );
+
+  for (const child of sectionChildren) {
+    result.push(child);
+
+    // Look for branch nodes attached to this activity/resource
+    const childChildren = getChildren(child.id, edges, nodes);
+    for (const grandchild of childChildren) {
+      if (grandchild.type !== 'branch') continue;
+
+      // Add branch children (OUI/NON) as modules of the same section
+      const branchChildren = getChildren(grandchild.id, edges, nodes).filter(
+        (n) => n.type === 'resource' || n.type === 'activity',
+      );
+      result.push(...branchChildren);
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Derive the effective restrictions for a module node.
+ * If the node is a child of a branch node, inject the completion restriction
+ * from the branch's reference activity (always derived from graph — robust
+ * even when node.data.restrictions was not populated at creation time).
+ */
+function deriveModuleRestrictions(
+  node: BackendNode,
+  edges: BackendEdgeWithHandle[],
+  nodes: BackendNode[],
+): { restrictions: Restriction[]; operator?: string } {
+  const existing = (node.data.restrictions ?? []) as Restriction[];
+  const operator = node.data.restrictionOperator as string | undefined;
+
+  // Is this node a direct child of a branch node?
+  const parentEdge = edges.find((e) => e.target === node.id);
+  if (!parentEdge) return { restrictions: existing, operator };
+
+  const parentNode = nodes.find((n) => n.id === parentEdge.source);
+  if (parentNode?.type !== 'branch') return { restrictions: existing, operator };
+
+  // Find the reference activity (parent of the branch node)
+  const refEdge = edges.find((e) => e.target === parentNode.id);
+  if (!refEdge) return { restrictions: existing, operator };
+
+  const refNodeId = refEdge.source;
+  const isTrue = parentEdge.sourceHandle === 'source-true';
+
+  const branchRestriction: Restriction = {
+    type: 'completion',
+    nodeId: refNodeId,
+    expected: isTrue ? 1 : 0,
+  };
+
+  // Avoid duplicating if already present in node.data
+  const alreadyPresent = existing.some(
+    (r) => r.type === 'completion' &&
+           (r as { nodeId?: string }).nodeId === refNodeId &&
+           (r as { expected?: number }).expected === branchRestriction.expected,
+  );
+
+  return {
+    restrictions: alreadyPresent ? existing : [branchRestriction, ...existing],
+    operator,
+  };
+}
+
 export async function exportProject(
   userId: string,
   projectId: string,
@@ -500,7 +587,7 @@ export async function exportProject(
   };
 
   const nodes = (project.nodes || []) as BackendNode[];
-  const edges = (project.edges || []) as BackendEdge[];
+  const edges = (project.edges || []) as BackendEdgeWithHandle[];
 
   // 2a. Detect circular restriction dependencies (A requires B requires A)
   const circularErrors = detectCircularRestrictions(nodes);
@@ -636,8 +723,8 @@ export async function exportProject(
       continue; // Still try to process other sections
     }
 
-    // 7. Create or update modules in this section
-    const moduleNodes = sortByPosition(getChildren(sectionNode.id, edges, nodes));
+    // 7. Create or update modules in this section (including branch node children)
+    const moduleNodes = sortByPosition(collectSectionModules(sectionNode.id, edges, nodes));
     for (const moduleNode of moduleNodes) {
       const nodeName = String(moduleNode.data.name || 'Untitled');
       const moduleOpts = buildModuleOptions(moduleNode, fileItemIds);
@@ -655,8 +742,7 @@ export async function exportProject(
       const moduleChecksum = computeChecksum(moduleNode.data);
       const existingModule = mappings.get(moduleNode.id);
       const completionFields = buildCompletionFields(moduleNode.data);
-      const restrictions = (moduleNode.data.restrictions ?? []) as Restriction[];
-      const operator = moduleNode.data.restrictionOperator as string | undefined;
+      const { restrictions, operator } = deriveModuleRestrictions(moduleNode, edges, nodes);
       const { json: availabilityJson, skippedNoCompletion } = buildAvailabilityJson(restrictions, mappings, nodes, operator);
       const availability = availabilityJson ?? '';
       for (const refName of skippedNoCompletion) {
@@ -763,11 +849,11 @@ export async function exportProject(
   // Second pass: re-apply availability for modules whose restrictions reference
   // other modules created in the same export run (cmids now resolved).
   for (const sectionNode of sectionNodes) {
-    const moduleNodes = sortByPosition(getChildren(sectionNode.id, edges, nodes));
+    const moduleNodes = sortByPosition(collectSectionModules(sectionNode.id, edges, nodes));
     for (const moduleNode of moduleNodes) {
-      const restrictions = (moduleNode.data.restrictions ?? []) as Restriction[];
+      const { restrictions, operator: moduleOperator } = deriveModuleRestrictions(moduleNode, edges, nodes);
       if (restrictions.length === 0) continue;
-      const { json: availabilityJson2 } = buildAvailabilityJson(restrictions, mappings, nodes, moduleNode.data.restrictionOperator as string | undefined);
+      const { json: availabilityJson2 } = buildAvailabilityJson(restrictions, mappings, nodes, moduleOperator);
       if (!availabilityJson2) continue;
       const existingModule = mappings.get(moduleNode.id);
       if (!existingModule?.moodle_id) continue;
