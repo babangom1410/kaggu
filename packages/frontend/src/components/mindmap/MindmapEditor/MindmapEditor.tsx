@@ -11,7 +11,7 @@ import 'reactflow/dist/style.css';
 
 import { nodeTypes } from '../nodes';
 import { useMindmapStore, generateNodeId } from '@/stores/mindmap-store';
-import type { MindmapNode } from '@/types/mindmap.types';
+import type { MindmapNode, Restriction } from '@/types/mindmap.types';
 
 // Global keyboard shortcuts (Ctrl+Z, Ctrl+Shift+Z, Ctrl+S)
 function useKeyboardShortcuts() {
@@ -197,8 +197,40 @@ export function MindmapEditor() {
       const parentNode = nodes.find((n) => n.id === parentId);
       if (!parentNode) return;
 
+      let nodeData = data;
+
+      // Inject access restriction when adding a child to a branch node
+      if (parentNode.type === 'branch' && (sourceHandle === 'source-true' || sourceHandle === 'source-false')) {
+        const branchData = parentNode.data as unknown as Record<string, unknown>;
+        const conditionType = String(branchData.conditionType ?? 'completion');
+        const gradeMin = Number(branchData.gradeMin ?? 50);
+
+        // The reference node is the parent of the branch node
+        const refEdge = edges.find((e) => e.target === parentId);
+        const refNodeId = refEdge?.source;
+
+        if (refNodeId) {
+          let restriction: Restriction;
+          if (conditionType === 'grade') {
+            restriction = sourceHandle === 'source-true'
+              ? { type: 'grade', nodeId: refNodeId, min: gradeMin }
+              : { type: 'grade', nodeId: refNodeId, max: gradeMin - 1 };
+          } else {
+            restriction = {
+              type: 'completion',
+              nodeId: refNodeId,
+              expected: sourceHandle === 'source-true' ? 1 : 0,
+            };
+          }
+          const existing = (data as unknown as Record<string, unknown>);
+          nodeData = {
+            ...data,
+            restrictions: [...((existing.restrictions ?? []) as Restriction[]), restriction],
+          } as MindmapNode['data'];
+        }
+      }
+
       const childCount = edges.filter((e) => e.source === parentId && (!sourceHandle || e.sourceHandle === sourceHandle)).length;
-      // Branch true branch goes right, false branch goes down
       const xOffset = sourceHandle === 'source-true' ? 260 : (childCount - 1) * 220;
       const yOffset = sourceHandle === 'source-false' ? 160 : 200;
 
@@ -207,7 +239,7 @@ export function MindmapEditor() {
           id: generateNodeId(),
           type,
           position: { x: parentNode.position.x + xOffset, y: parentNode.position.y + yOffset },
-          data,
+          data: nodeData,
         },
         parentId,
         sourceHandle,
