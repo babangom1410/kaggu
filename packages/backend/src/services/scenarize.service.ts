@@ -6,8 +6,9 @@ import { initSSE, sendSSE } from './llm.service';
 const MODEL_STRUCTURE = 'claude-opus-4-6';
 // Phase 2: Sonnet for content generation — fast, parallel, cost-effective
 const MODEL_CONTENT = 'claude-sonnet-4-6';
-// Step 1: structure (claude-opus-4-6 max = 32 000)
-const MAX_TOKENS_STRUCTURE = 32_000;
+// Step 1: structure (Opus) — 16k is sufficient (5-10 modules JSON ≈ 5-8k tokens)
+// Note: Anthropic SDK requires streaming for max_tokens > ~21k on non-streaming calls
+const MAX_TOKENS_STRUCTURE = 16_000;
 // Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
 const MAX_TOKENS_CONTENT = 8_192;
 // Max concurrent content-generation calls (keep at 2 to avoid rate limits with many tasks)
