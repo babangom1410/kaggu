@@ -11,7 +11,7 @@ import {
   generateLessonPages,
   generateBookChapters,
 } from '../services/llm.service';
-import { scenarizeCourse } from '../services/scenarize.service';
+import { scenarizeCourse, scenarizeCourseStructure, scenarizeContent } from '../services/scenarize.service';
 
 const router = Router();
 
@@ -211,6 +211,66 @@ router.post(
     }
 
     await scenarizeCourse(parsed.data, res);
+  },
+);
+
+// POST /api/v1/llm/scenarize/structure — Phase 1 only: PDF → structure skeleton → mindmap (SSE)
+router.post(
+  '/scenarize/structure',
+  express.json({ limit: '20mb' }),
+  async (req, res) => {
+    const MAX_PDF_BASE64_CHARS = 8 * 1024 * 1024;
+    const fileSchema = z.object({
+      name:    z.string().min(1),
+      type:    z.enum(['pdf', 'markdown', 'text']),
+      content: z.string().min(1).max(MAX_PDF_BASE64_CHARS, 'Fichier trop volumineux (max ~6 MB par PDF)'),
+    });
+
+    const schema = z.object({
+      files:             z.array(fileSchema).max(10).default([]),
+      level:             z.string().min(1).max(100),
+      duration:          z.string().min(1).max(100),
+      moduleCount:       z.number().int().min(1).max(20).default(4),
+      language:          z.string().min(2).max(50).default('Français'),
+      additionalContext: z.string().max(1000).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    await scenarizeCourseStructure(parsed.data, res);
+  },
+);
+
+// POST /api/v1/llm/scenarize/content — Phase 2: generate HTML + quiz questions for nodes (SSE)
+router.post(
+  '/scenarize/content',
+  express.json({ limit: '1mb' }),
+  async (req, res) => {
+    const taskSchema = z.object({
+      nodeId:       z.string().min(1),
+      subtype:      z.enum(['page', 'quiz']),
+      name:         z.string().min(1),
+      description:  z.string().default(''),
+      contentContext: z.string().default(''),
+      questionCount: z.number().int().min(1).max(10).optional(),
+    });
+
+    const schema = z.object({
+      tasks:    z.array(taskSchema).min(1).max(100),
+      language: z.string().min(2).max(50).default('Français'),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    await scenarizeContent(parsed.data, res);
   },
 );
 

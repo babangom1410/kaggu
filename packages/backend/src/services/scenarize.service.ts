@@ -394,45 +394,20 @@ Génère EXACTEMENT ${questionCount} questions variées. Retourne uniquement le 
   }
 }
 
-// ─── Step 2: orchestration (collect all nodes needing content) ─────────────────
+// ─── Phase 2 public interface ──────────────────────────────────────────────────
 
-interface ContentTask {
-  sectionIdx: number;
-  nodeIdx: number;
-  isBranchChild?: 'true' | 'false';
-  node: ScenNodeSkeleton;
-  context: string;
+export interface ContentTask {
+  nodeId: string;
+  subtype: 'page' | 'quiz';
+  name: string;
+  description: string;
+  contentContext: string;
+  questionCount?: number;
 }
 
-function collectContentTasks(structure: ScenStructure): ContentTask[] {
-  const tasks: ContentTask[] = [];
-
-  structure.sections.forEach((section, sIdx) => {
-    const context = section.contentContext || section.summary;
-
-    section.nodes.forEach((item, nIdx) => {
-      if (item.type === 'branch') {
-        const branch = item as ScenBranchSkeleton;
-        if (branch.trueNode && needsContentGeneration(branch.trueNode)) {
-          tasks.push({ sectionIdx: sIdx, nodeIdx: nIdx, isBranchChild: 'true', node: branch.trueNode, context });
-        }
-        if (branch.falseNode && needsContentGeneration(branch.falseNode)) {
-          tasks.push({ sectionIdx: sIdx, nodeIdx: nIdx, isBranchChild: 'false', node: branch.falseNode, context });
-        }
-      } else {
-        const node = item as ScenNodeSkeleton;
-        if (needsContentGeneration(node)) {
-          tasks.push({ sectionIdx: sIdx, nodeIdx: nIdx, node, context });
-        }
-      }
-    });
-  });
-
-  return tasks;
-}
-
-function needsContentGeneration(node: ScenNodeSkeleton): boolean {
-  return node.subtype === 'page' || node.subtype === 'quiz';
+export interface ContentGenerationParams {
+  tasks: ContentTask[];
+  language: string;
 }
 
 // ─── Mindmap conversion (same as before) ──────────────────────────────────────
@@ -470,7 +445,10 @@ function createNode(
   return id;
 }
 
-function scenarizationToMindmap(result: ScenResult): {
+function scenarizationToMindmap(
+  result: ScenResult,
+  sectionContexts: Map<number, string>,
+): {
   nodes: MindmapNodeShape[];
   edges: MindmapEdgeShape[];
   meta: { outcomes: string[]; competencies: string[]; courseName: string; summary: string };
@@ -506,7 +484,7 @@ function scenarizationToMindmap(result: ScenResult): {
       id: sectionId,
       type: 'section',
       position: { x: sx, y: 320 },
-      data: { name: section.name, summary: section.summary, visible: true },
+      data: { name: section.name, summary: section.summary, visible: true, contentContext: sectionContexts.get(sIdx) ?? '' },
     });
     edges.push({ id: newEdgeId(courseId, sectionId), source: courseId, target: sectionId });
 
@@ -556,16 +534,17 @@ function scenarizationToMindmap(result: ScenResult): {
   };
 }
 
-// ─── Main export ──────────────────────────────────────────────────────────────
+// ─── Main exports ─────────────────────────────────────────────────────────────
 
-export async function scenarizeCourse(
+/** Phase 1: PDF analysis → structure skeleton → mindmap nodes/edges with empty content */
+export async function scenarizeCourseStructure(
   params: ScenarizationParams,
   res: Response,
 ): Promise<void> {
   const client = getClient();
   initSSE(res);
 
-  // Start heartbeat immediately — keeps proxy alive during Phase 1 (Opus, 30-60s) AND Phase 2
+  // Start heartbeat immediately — keeps proxy alive during Phase 1 (Opus, 30-60s)
   const heartbeat = startHeartbeat(res);
 
   try {
@@ -660,20 +639,8 @@ export async function scenarizeCourse(
       return;
     }
 
-    // ── PHASE 2: generate content per node ───────────────────────────────────
-
-    const tasks = collectContentTasks(structure);
-    const totalTasks = tasks.length;
-
-    sendSSE(res, 'progress', {
-      step: 'content',
-      message: `Génération du contenu (${totalTasks} nœuds en parallèle)…`,
-      total: totalTasks,
-      done: 0,
-    });
-
-    // Deep-clone structure to enrich it
-    const enriched: ScenResult = {
+    // Build a skeleton result with empty content for page/quiz nodes
+    const skeleton: ScenResult = {
       ...structure,
       sections: structure.sections.map((s) => ({
         name: s.name,
@@ -683,66 +650,110 @@ export async function scenarizeCourse(
           if (item.type === 'branch') {
             return {
               ...item,
-              trueNode: { ...item.trueNode } as ScenNodeEnriched,
-              falseNode: { ...item.falseNode } as ScenNodeEnriched,
+              trueNode: { ...item.trueNode, content: undefined, questions: undefined } as ScenNodeEnriched,
+              falseNode: { ...item.falseNode, content: undefined, questions: undefined } as ScenNodeEnriched,
             } as ScenBranchEnriched;
           }
-          return { ...item } as ScenNodeEnriched;
+          const node = item as ScenNodeSkeleton;
+          const enriched: ScenNodeEnriched = { ...node };
+          if (node.subtype === 'page') enriched.content = '';
+          else if (node.subtype === 'quiz') enriched.questions = [];
+          return enriched;
         }),
       })),
     };
 
-    // Helper to find the enriched node for a task
-    function getEnrichedNode(task: ContentTask): ScenNodeEnriched {
-      const sectionNodes = enriched.sections[task.sectionIdx].nodes;
-      const item = sectionNodes[task.nodeIdx];
-      if (task.isBranchChild) {
-        const branch = item as ScenBranchEnriched;
-        return task.isBranchChild === 'true' ? branch.trueNode : branch.falseNode;
-      }
-      return item as ScenNodeEnriched;
-    }
-
-    let doneCount = 0;
-
-    const contentTaskFns = tasks.map((task) => async () => {
-      const node = getEnrichedNode(task);
-      const context = structure.sections[task.sectionIdx].contentContext || structure.sections[task.sectionIdx].summary;
-
-      if (node.subtype === 'page') {
-        const html = await withTimeout(
-          generatePageHtml(client, node.name, node.description, context, params.language),
-          CONTENT_TASK_TIMEOUT_MS,
-          `page "${node.name}"`,
-        );
-        node.content = html;
-      } else if (node.subtype === 'quiz') {
-        const count = Math.min(task.node.questionCount ?? 5, MAX_QUESTIONS_PER_QUIZ);
-        const questions = await withTimeout(
-          generateQuizForScen(client, node.name, node.description, context, count, params.language),
-          CONTENT_TASK_TIMEOUT_MS,
-          `quiz "${node.name}"`,
-        );
-        node.questions = questions;
-      }
-
-      doneCount++;
-      sendSSE(res, 'node_done', {
-        name: node.name,
-        type: node.subtype,
-        index: doneCount,
-        total: totalTasks,
-      });
+    // Build a map from section index → contentContext for the mindmap conversion
+    const sectionContexts = new Map<number, string>();
+    structure.sections.forEach((s, idx) => {
+      sectionContexts.set(idx, s.contentContext ?? '');
     });
 
-    await withConcurrency(contentTaskFns, CONCURRENCY);
-
-    // ── PHASE 3: convert to mindmap ───────────────────────────────────────────
+    // ── PHASE 2 (skipped): convert to mindmap ─────────────────────────────────
 
     sendSSE(res, 'progress', { step: 'converting', message: 'Conversion en mindmap…' });
 
-    const { nodes, edges, meta } = scenarizationToMindmap(enriched);
+    const { nodes, edges, meta } = scenarizationToMindmap(skeleton, sectionContexts);
     sendSSE(res, 'done', { nodes, edges, meta });
+
+  } catch (err) {
+    sendSSE(res, 'error', { message: (err as Error).message });
+  } finally {
+    clearInterval(heartbeat);
+    res.end();
+  }
+}
+
+/** Backward-compatible alias */
+export const scenarizeCourse = scenarizeCourseStructure;
+
+/** Phase 2: Generate HTML + quiz questions for all page/quiz nodes with empty content */
+export async function scenarizeContent(
+  params: ContentGenerationParams,
+  res: Response,
+): Promise<void> {
+  const client = getClient();
+  initSSE(res);
+
+  const heartbeat = startHeartbeat(res);
+
+  try {
+    const total = params.tasks.length;
+
+    sendSSE(res, 'progress', {
+      step: 'content',
+      message: `Génération du contenu (${total} nœuds)…`,
+      total,
+      done: 0,
+    });
+
+    interface NodeDoneResult {
+      nodeId: string;
+      content?: string;
+      questions?: unknown[];
+    }
+
+    const results: NodeDoneResult[] = [];
+    let doneCount = 0;
+
+    const taskFns = params.tasks.map((task, taskIdx) => async () => {
+      const context = truncateToWords(task.contentContext || '', MAX_CONTEXT_WORDS);
+      const result: NodeDoneResult = { nodeId: task.nodeId };
+
+      if (task.subtype === 'page') {
+        const html = await withTimeout(
+          generatePageHtml(client, task.name, task.description, context, params.language),
+          CONTENT_TASK_TIMEOUT_MS,
+          `page "${task.name}"`,
+        );
+        result.content = html;
+      } else if (task.subtype === 'quiz') {
+        const count = Math.min(task.questionCount ?? 5, MAX_QUESTIONS_PER_QUIZ);
+        const questions = await withTimeout(
+          generateQuizForScen(client, task.name, task.description, context, count, params.language),
+          CONTENT_TASK_TIMEOUT_MS,
+          `quiz "${task.name}"`,
+        );
+        result.questions = questions;
+      }
+
+      doneCount++;
+      results[taskIdx] = result;
+
+      sendSSE(res, 'node_done', {
+        nodeId: task.nodeId,
+        name: task.name,
+        type: task.subtype,
+        content: result.content,
+        questions: result.questions,
+        index: doneCount,
+        total,
+      });
+    });
+
+    await withConcurrency(taskFns, CONCURRENCY);
+
+    sendSSE(res, 'done', { results });
 
   } catch (err) {
     sendSSE(res, 'error', { message: (err as Error).message });

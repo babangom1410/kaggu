@@ -24,6 +24,7 @@ export interface SectionNodeData {
   visible: boolean;
   position?: number;
   collapsed?: boolean;
+  contentContext?: string;
 }
 
 // --- Resource nodes ---

@@ -143,6 +143,28 @@ export function scenarizeCourse(params: ScenarizationParams, onEvent: SSECallbac
   return streamPost('/api/v1/llm/scenarize', params, onEvent, signal);
 }
 
+export function scenarizeCourseStructure(params: ScenarizationParams, onEvent: SSECallback, signal?: AbortSignal) {
+  return streamPost('/api/v1/llm/scenarize/structure', params, onEvent, signal);
+}
+
+export interface ContentTaskParams {
+  nodeId: string;
+  subtype: 'page' | 'quiz';
+  name: string;
+  description: string;
+  contentContext: string;
+  questionCount?: number;
+}
+
+export function scenarizeContent(
+  tasks: ContentTaskParams[],
+  language: string,
+  onEvent: SSECallback,
+  signal?: AbortSignal,
+) {
+  return streamPost('/api/v1/llm/scenarize/content', { tasks, language }, onEvent, signal);
+}
+
 export async function generateFeedback(
   feedbackName: string,
   prompt: string,

@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { scenarizeCourse, type ScenarizationFile } from '@/api/llm-api';
+import { scenarizeCourseStructure, type ScenarizationFile } from '@/api/llm-api';
 import { useMindmapStore } from '@/stores/mindmap-store';
 import type { MindmapNode, MindmapEdge } from '@/types/mindmap.types';
 
@@ -20,13 +20,6 @@ interface ScenResult {
   nodes: MindmapNode[];
   edges: MindmapEdge[];
   meta: ScenMeta;
-}
-
-interface NodeProgress {
-  done: number;
-  total: number;
-  lastName: string;
-  lastType: string;
 }
 
 const LEVELS = [
@@ -158,34 +151,22 @@ function FileDropZone({
 // ─── Progress step ────────────────────────────────────────────────────────────
 
 const PROGRESS_STEPS = [
-  { key: 'structure', label: 'Structure' },
-  { key: 'content',   label: 'Contenu' },
+  { key: 'structure',  label: 'Structure' },
   { key: 'converting', label: 'Mindmap' },
 ];
-
-const SUBTYPES_LABELS: Record<string, string> = {
-  page: '📄 Page',
-  quiz: '❓ Quiz',
-  assign: '📋 Devoir',
-  forum: '💬 Forum',
-  url: '🔗 URL',
-};
 
 function ProgressView({
   currentStep,
   statusMessage,
   streamText,
-  nodeProgress,
   onCancel,
 }: {
   currentStep: string;
   statusMessage: string;
   streamText: string;
-  nodeProgress: NodeProgress | null;
   onCancel: () => void;
 }) {
   const stepIdx = PROGRESS_STEPS.findIndex((s) => s.key === currentStep);
-  const isContentStep = currentStep === 'content' && nodeProgress;
 
   return (
     <div className="space-y-5 py-2">
@@ -221,32 +202,8 @@ function ProgressView({
         {statusMessage}
       </div>
 
-      {/* Content generation progress bar */}
-      {isContentStep && (
-        <div className="space-y-2">
-          <div className="flex justify-between text-xs text-slate-400">
-            <span>{nodeProgress.done}/{nodeProgress.total} nœuds générés</span>
-            <span>{Math.round((nodeProgress.done / nodeProgress.total) * 100)}%</span>
-          </div>
-          <div className="w-full bg-slate-700 rounded-full h-1.5">
-            <div
-              className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
-              style={{ width: `${(nodeProgress.done / nodeProgress.total) * 100}%` }}
-            />
-          </div>
-          {nodeProgress.lastName && (
-            <div className="text-xs text-slate-500 flex items-center gap-1.5">
-              <span className="text-emerald-400">✓</span>
-              <span>{SUBTYPES_LABELS[nodeProgress.lastType] ?? nodeProgress.lastType}</span>
-              <span className="text-slate-600">—</span>
-              <span className="truncate max-w-[280px]">{nodeProgress.lastName}</span>
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Stream preview (structure phase) */}
-      {streamText && !isContentStep && (
+      {/* Stream preview */}
+      {streamText && (
         <div className="bg-slate-800/80 rounded-lg p-3 max-h-32 overflow-y-auto">
           <div className="text-xs text-slate-500 mb-1">Structure en cours…</div>
           <div className="text-xs text-slate-400 font-mono whitespace-pre-wrap leading-relaxed">
@@ -421,7 +378,6 @@ export function ScenarizationModal({ onClose }: Props) {
   const [currentProgressStep, setCurrentProgressStep] = useState('structure');
   const [statusMessage, setStatusMessage] = useState('');
   const [streamText, setStreamText] = useState('');
-  const [nodeProgress, setNodeProgress] = useState<NodeProgress | null>(null);
   const [error, setError] = useState('');
   const [result, setResult] = useState<ScenResult | null>(null);
   const [applied, setApplied] = useState(false);
@@ -439,7 +395,6 @@ export function ScenarizationModal({ onClose }: Props) {
   const handleGenerate = async () => {
     setError('');
     setStreamText('');
-    setNodeProgress(null);
     setResult(null);
     setApplied(false);
     setStep('generating');
@@ -450,25 +405,15 @@ export function ScenarizationModal({ onClose }: Props) {
     abortRef.current = controller;
 
     try {
-      await scenarizeCourse(
+      await scenarizeCourseStructure(
         { files, level, duration, moduleCount, language, additionalContext: additionalContext || undefined },
         (event, data) => {
           const d = data as Record<string, unknown>;
           if (event === 'progress') {
             setCurrentProgressStep((d.step as string) ?? 'structure');
             setStatusMessage((d.message as string) ?? '');
-            if (d.total) {
-              setNodeProgress({ done: 0, total: d.total as number, lastName: '', lastType: '' });
-            }
           } else if (event === 'delta') {
             setStreamText((prev) => prev + ((d.text as string) ?? ''));
-          } else if (event === 'node_done') {
-            setNodeProgress({
-              done: (d.index as number) ?? 0,
-              total: (d.total as number) ?? 0,
-              lastName: (d.name as string) ?? '',
-              lastType: (d.type as string) ?? '',
-            });
           } else if (event === 'done') {
             const nodes = (d.nodes as MindmapNode[]) ?? [];
             const edges = (d.edges as MindmapEdge[]) ?? [];
@@ -519,7 +464,7 @@ export function ScenarizationModal({ onClose }: Props) {
               <span>🎓</span> Scénarisation IA
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              {step === 'setup' && 'Génère un cours complet à partir de tes fichiers'}
+              {step === 'setup' && 'Génère la structure du cours (Phase 1) à partir de tes fichiers'}
               {step === 'generating' && 'Génération du cours en cours…'}
               {step === 'preview' && 'Aperçu du cours généré'}
             </p>
@@ -622,6 +567,7 @@ export function ScenarizationModal({ onClose }: Props) {
                 <span className="text-amber-400 mt-0.5 flex-shrink-0">⚠</span>
                 <p className="text-xs text-amber-200/80">
                   La génération remplacera <strong>entièrement</strong> le mindmap actuel. L'opération est annulable via Undo.
+                  Les contenus détaillés (pages, quiz) seront générés séparément via <strong>📝 Contenus</strong> après validation.
                 </p>
               </div>
 
@@ -637,7 +583,7 @@ export function ScenarizationModal({ onClose }: Props) {
                 className="w-full py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-semibold
                            transition-colors disabled:opacity-40 flex items-center justify-center gap-2"
               >
-                🎓 Générer le cours
+                🎓 Générer la structure
               </button>
             </div>
           )}
@@ -648,7 +594,6 @@ export function ScenarizationModal({ onClose }: Props) {
               currentStep={currentProgressStep}
               statusMessage={statusMessage}
               streamText={streamText}
-              nodeProgress={nodeProgress}
               onCancel={handleCancel}
             />
           )}

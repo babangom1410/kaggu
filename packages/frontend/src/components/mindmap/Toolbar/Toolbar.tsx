@@ -7,6 +7,7 @@ import { ExportModal } from '@/components/mindmap/ExportModal';
 import { ImportModal } from '@/components/mindmap/ImportModal/ImportModal';
 import { CourseStructureWizard } from '@/components/mindmap/AiAssistant';
 import { ScenarizationModal } from '@/components/mindmap/ScenarizationModal';
+import { ContentGenerationModal } from '@/components/mindmap/ContentGenerationModal';
 import { analyzeMindmap } from '@/api/llm-api';
 
 // ─── Analyze Modal ────────────────────────────────────────────────────────────
@@ -226,8 +227,19 @@ export function Toolbar() {
   const [wizardOpen, setWizardOpen] = useState(false);
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [scenarizationOpen, setScenarizationOpen] = useState(false);
+  const [contentGenOpen, setContentGenOpen] = useState(false);
 
   const isMoodleConnected = !!(moodleConfig?.url && moodleConfig?.token);
+
+  const hasEmptyContentNodes = nodes.some((n) => {
+    const d = n.data as unknown as Record<string, unknown>;
+    if (n.type === 'resource' && d.subtype === 'page') return !((d.content as string)?.trim());
+    if (n.type === 'activity' && d.subtype === 'quiz') {
+      const q = d.questions as unknown[] | undefined;
+      return !q || q.length === 0;
+    }
+    return false;
+  });
 
   const handleAddSection = () => {
     const courseNode = nodes.find((n) => n.type === 'course');
@@ -338,6 +350,19 @@ export function Toolbar() {
       >
         🎓 Scénariser
       </button>
+
+      {/* Phase 2: Content generation */}
+      {hasEmptyContentNodes && (
+        <button
+          onClick={() => setContentGenOpen(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+                     bg-teal-500/15 text-teal-400 border border-teal-500/20
+                     hover:bg-teal-500/25 hover:text-teal-300 transition-all duration-150"
+          title="Générer les contenus des pages et quiz (Phase 2)"
+        >
+          📝 Contenus
+        </button>
+      )}
 
       {/* AI Analyze */}
       <button
@@ -480,6 +505,9 @@ export function Toolbar() {
 
       {/* AI Scénarisation Modal */}
       {scenarizationOpen && <ScenarizationModal onClose={() => setScenarizationOpen(false)} />}
+
+      {/* Phase 2: Content Generation Modal */}
+      {contentGenOpen && <ContentGenerationModal onClose={() => setContentGenOpen(false)} />}
 
       {/* AI Analyze Modal */}
       {analyzeOpen && (
