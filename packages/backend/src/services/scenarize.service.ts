@@ -2,9 +2,11 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Response } from 'express';
 import { initSSE, sendSSE } from './llm.service';
 
-const MODEL = 'claude-sonnet-4-6';
+// Phase 1: Opus for best PDF understanding + pedagogical structure quality (1 call only)
+const MODEL_STRUCTURE = 'claude-opus-4-6';
+// Phase 2: Sonnet for content generation — fast, parallel, cost-effective
+const MODEL_CONTENT = 'claude-sonnet-4-6';
 // Step 1: structure skeleton output — no HTML, no questions → bounded but can grow with many modules
-// Use output-128k beta to unlock up to 16k output tokens on sonnet-4-6
 const MAX_TOKENS_STRUCTURE = 16000;
 // Step 2: content per node — bounded per call
 const MAX_TOKENS_CONTENT = 2048;
@@ -307,7 +309,7 @@ async function generatePageHtml(
   language: string,
 ): Promise<string> {
   const message = await client.messages.create({
-    model: MODEL,
+    model: MODEL_CONTENT,
     max_tokens: MAX_TOKENS_CONTENT,
     system: PAGE_SYSTEM,
     messages: [{
@@ -338,7 +340,7 @@ async function generateQuizForScen(
   language: string,
 ): Promise<unknown[]> {
   const message = await client.messages.create({
-    model: MODEL,
+    model: MODEL_CONTENT,
     max_tokens: MAX_TOKENS_CONTENT,
     system: `Tu génères des questions de quiz Moodle en JSON strict.
 Retourne UNIQUEMENT un tableau JSON valide (pas de texte, pas de markdown).
@@ -585,7 +587,7 @@ export async function scenarizeCourse(
       const message = await (client.beta.messages.create as unknown as (
         p: Record<string, unknown>,
       ) => Promise<{ stop_reason: string; content: Array<{ type: string; text?: string }> }>)({
-        model: MODEL,
+        model: MODEL_STRUCTURE,
         max_tokens: MAX_TOKENS_STRUCTURE,
         system: structureSystemPrompt,
         messages: [{ role: 'user', content: userContent }],
@@ -605,7 +607,7 @@ export async function scenarizeCourse(
         .join('');
     } else {
       const stream = client.messages.stream({
-        model: MODEL,
+        model: MODEL_STRUCTURE,
         max_tokens: MAX_TOKENS_STRUCTURE,
         system: structureSystemPrompt,
         messages: [{ role: 'user', content: userContent as Anthropic.ContentBlockParam[] }],
