@@ -590,31 +590,13 @@ export async function scenarizeCourse(
 
     let structureText = '';
 
+    // Claude 4 models support PDFs natively — no beta flag needed
+    // Use streaming for both PDF and text-only cases (unified path)
     if (hasPdf) {
       sendSSE(res, 'progress', { step: 'structure', message: 'Lecture des PDFs en cours (20-40 s)…' });
+    }
 
-      const message = await (client.beta.messages.create as unknown as (
-        p: Record<string, unknown>,
-      ) => Promise<{ stop_reason: string; content: Array<{ type: string; text?: string }> }>)({
-        model: MODEL_STRUCTURE,
-        max_tokens: MAX_TOKENS_STRUCTURE,
-        system: structureSystemPrompt,
-        messages: [{ role: 'user', content: userContent }],
-        betas: ['pdfs-2024-09-25'],
-      });
-
-      if (message.stop_reason === 'max_tokens') {
-        sendSSE(res, 'error', {
-          message: 'Réponse tronquée (limite de tokens atteinte). Réduis le nombre de modules ou de fichiers et réessaie.',
-        });
-        return;
-      }
-
-      structureText = message.content
-        .filter((b) => b.type === 'text')
-        .map((b) => b.text ?? '')
-        .join('');
-    } else {
+    {
       const stream = client.messages.stream({
         model: MODEL_STRUCTURE,
         max_tokens: MAX_TOKENS_STRUCTURE,
@@ -627,6 +609,14 @@ export async function scenarizeCourse(
           structureText += event.delta.text;
           sendSSE(res, 'delta', { text: event.delta.text });
         }
+      }
+
+      const finalMsg = await stream.finalMessage();
+      if (finalMsg.stop_reason === 'max_tokens') {
+        sendSSE(res, 'error', {
+          message: 'Réponse tronquée (limite de tokens atteinte). Réduis le nombre de modules ou de fichiers et réessaie.',
+        });
+        return;
       }
     }
 
