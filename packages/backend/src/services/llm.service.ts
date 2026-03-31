@@ -2,7 +2,9 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Response } from 'express';
 
 const MODEL = 'claude-sonnet-4-6';
-const MAX_TOKENS = 4096;
+// claude-sonnet-4-6 max output = 16 000 tokens
+const MAX_TOKENS = 8_192;          // streaming (node content, course structure, analyze)
+const MAX_TOKENS_COLLECTION = 16_000; // bulk generation (quiz, lesson, book chapters)
 
 function getClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -343,7 +345,7 @@ ${QUIZ_JSON_SCHEMA}`;
 
   const message = await client.messages.create({
     model: MODEL,
-    max_tokens: 4096,
+    max_tokens: MAX_TOKENS_COLLECTION,
     system: systemPrompt,
     messages: [{ role: 'user', content: userMessage }],
   });
@@ -418,7 +420,7 @@ ${FEEDBACK_ITEM_SCHEMA}`;
 
   const message = await client.messages.create({
     model: MODEL,
-    max_tokens: 2048,
+    max_tokens: 4_096,
     system: systemPrompt,
     messages: [{ role: 'user', content: params.prompt }],
   });
@@ -518,7 +520,7 @@ ${LESSON_PAGE_SCHEMA}`;
 
   const message = await client.messages.create({
     model: MODEL,
-    max_tokens: 4096,
+    max_tokens: MAX_TOKENS_COLLECTION,
     system: systemPrompt,
     messages: [{ role: 'user', content: params.prompt }],
   });
@@ -596,7 +598,7 @@ ${BOOK_CHAPTER_SCHEMA}`;
 
   const message = await client.messages.create({
     model: MODEL,
-    max_tokens: 4096,
+    max_tokens: MAX_TOKENS_COLLECTION,
     system: systemPrompt,
     messages: [{ role: 'user', content: params.prompt }],
   });
@@ -653,7 +655,7 @@ Format de réponse : liste à puces claire et actionnable.`;
   try {
     const stream = client.messages.stream({
       model: MODEL,
-      max_tokens: 2048,
+      max_tokens: MAX_TOKENS,
       system: systemPrompt,
       messages: [{
         role: 'user',

@@ -6,10 +6,10 @@ import { initSSE, sendSSE } from './llm.service';
 const MODEL_STRUCTURE = 'claude-opus-4-6';
 // Phase 2: Sonnet for content generation — fast, parallel, cost-effective
 const MODEL_CONTENT = 'claude-sonnet-4-6';
-// Step 1: structure skeleton output — no HTML, no questions → bounded but can grow with many modules
-const MAX_TOKENS_STRUCTURE = 16000;
-// Step 2: content per node — 4096 to handle 10-question quizzes + rich HTML pages
-const MAX_TOKENS_CONTENT = 4096;
+// Step 1: structure (claude-opus-4-6 max = 32 000)
+const MAX_TOKENS_STRUCTURE = 32_000;
+// Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
+const MAX_TOKENS_CONTENT = 8_192;
 // Max concurrent content-generation calls (keep at 2 to avoid rate limits with many tasks)
 const CONCURRENCY = 2;
 // Max chars per text/markdown file before truncation (~7500 tokens)
