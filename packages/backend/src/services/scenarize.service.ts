@@ -3,8 +3,9 @@ import type { Response } from 'express';
 import { initSSE, sendSSE } from './llm.service';
 
 const MODEL = 'claude-sonnet-4-6';
-// Step 1: structure skeleton output — no HTML, no questions → always small
-const MAX_TOKENS_STRUCTURE = 6000;
+// Step 1: structure skeleton output — no HTML, no questions → bounded but can grow with many modules
+// Use output-128k beta to unlock up to 16k output tokens on sonnet-4-6
+const MAX_TOKENS_STRUCTURE = 16000;
 // Step 2: content per node — bounded per call
 const MAX_TOKENS_CONTENT = 2048;
 // Max concurrent content-generation calls
@@ -581,7 +582,7 @@ export async function scenarizeCourse(
         max_tokens: MAX_TOKENS_STRUCTURE,
         system: structureSystemPrompt,
         messages: [{ role: 'user', content: userContent }],
-        betas: ['pdfs-2024-09-25'],
+        betas: ['pdfs-2024-09-25', 'output-128k-2025-02-19'],
       });
 
       if (message.stop_reason === 'max_tokens') {
