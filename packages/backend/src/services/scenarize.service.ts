@@ -11,8 +11,8 @@ const MODEL_CONTENT = 'claude-sonnet-4-6';
 const MAX_TOKENS_STRUCTURE = 16_000;
 // Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
 const MAX_TOKENS_CONTENT = 8_192;
-// Max concurrent content-generation calls (keep at 2 to avoid rate limits with many tasks)
-const CONCURRENCY = 2;
+// Max concurrent content-generation calls
+const CONCURRENCY = 4;
 // Max chars per text/markdown file before truncation (~7500 tokens)
 const MAX_TEXT_FILE_CHARS = 30_000;
 // Max words for contentContext injected into content calls
@@ -188,9 +188,12 @@ function injectQuizIds(questions: unknown[]): unknown[] {
 }
 
 /** Send SSE comment (keep-alive ping) to prevent proxy timeouts */
-function startHeartbeat(res: Response, intervalMs = 20_000): ReturnType<typeof setInterval> {
+function startHeartbeat(res: Response, intervalMs = 15_000): ReturnType<typeof setInterval> {
   return setInterval(() => {
-    try { res.write(': keep-alive\n\n'); } catch { /* connection already closed */ }
+    try {
+      res.write(': keep-alive\n\n');
+      (res as unknown as { flush?: () => void }).flush?.();
+    } catch { /* connection already closed */ }
   }, intervalMs);
 }
 

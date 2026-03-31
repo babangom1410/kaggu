@@ -23,6 +23,8 @@ export function initSSE(res: Response): void {
 
 export function sendSSE(res: Response, event: string, data: unknown): void {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  // Force flush to network so proxies (Caddy/nginx) see activity and don't drop the connection
+  (res as unknown as { flush?: () => void }).flush?.();
 }
 
 // ─── System prompts ───────────────────────────────────────────────────────────
