@@ -589,7 +589,7 @@ export async function scenarizeCourse(
         max_tokens: MAX_TOKENS_STRUCTURE,
         system: structureSystemPrompt,
         messages: [{ role: 'user', content: userContent }],
-        betas: ['pdfs-2024-09-25', 'output-128k-2025-02-19'],
+        betas: ['pdfs-2024-09-25'],
       });
 
       if (message.stop_reason === 'max_tokens') {
