@@ -188,10 +188,11 @@ router.post(
   '/scenarize',
   express.json({ limit: '20mb' }),
   async (req, res) => {
+    const MAX_PDF_BASE64_CHARS = 8 * 1024 * 1024; // ~6 MB PDF → 8 MB base64
     const fileSchema = z.object({
       name:    z.string().min(1),
       type:    z.enum(['pdf', 'markdown', 'text']),
-      content: z.string().min(1),
+      content: z.string().min(1).max(MAX_PDF_BASE64_CHARS, 'Fichier trop volumineux (max ~6 MB par PDF)'),
     });
 
     const schema = z.object({

@@ -3,12 +3,16 @@ import type { Response } from 'express';
 import { initSSE, sendSSE } from './llm.service';
 
 const MODEL = 'claude-sonnet-4-6';
-// Step 1: structure only — output is always small (< 3000 tokens)
+// Step 1: structure skeleton output — no HTML, no questions → always small
 const MAX_TOKENS_STRUCTURE = 6000;
 // Step 2: content per node — bounded per call
 const MAX_TOKENS_CONTENT = 2048;
-// How many content-generation calls to run in parallel
+// Max concurrent content-generation calls
 const CONCURRENCY = 4;
+// Max chars per text/markdown file before truncation (~7500 tokens)
+const MAX_TEXT_FILE_CHARS = 30_000;
+// Max words for contentContext injected into content calls
+const MAX_CONTEXT_WORDS = 120;
 
 function getClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -148,6 +152,27 @@ function extractJsonArray(text: string): string {
   return start !== -1 && end > start ? text.slice(start, end + 1) : text.trim();
 }
 
+// ─── Input guards ─────────────────────────────────────────────────────────────
+
+/** Clamp a text to a max word count to keep context tokens bounded */
+function truncateToWords(text: string, maxWords: number): string {
+  if (!text) return '';
+  const words = text.trim().split(/\s+/);
+  if (words.length <= maxWords) return text;
+  return words.slice(0, maxWords).join(' ') + '…';
+}
+
+/** Enforce contentContext limit on every section after structure parsing */
+function guardStructure(s: ScenStructure): ScenStructure {
+  return {
+    ...s,
+    sections: s.sections.map((sec) => ({
+      ...sec,
+      contentContext: truncateToWords(sec.contentContext ?? sec.summary, MAX_CONTEXT_WORDS),
+    })),
+  };
+}
+
 function injectQuizIds(questions: unknown[]): unknown[] {
   return (questions as Record<string, unknown>[]).map((q) => ({
     ...q,
@@ -174,7 +199,8 @@ async function withConcurrency<T>(
         const result = await tasks[idx]();
         results[idx] = result;
         onDone?.(idx, result);
-      } catch {
+      } catch (err) {
+        console.error(`[scenarize:content] task ${idx} failed:`, (err as Error).message);
         results[idx] = null;
         onDone?.(idx, null);
       }
@@ -525,7 +551,7 @@ export async function scenarizeCourse(
           title: file.name,
         });
       } else {
-        textParts.push(`## ${file.name}\n\n${file.content}`);
+        textParts.push(`## ${file.name}\n\n${file.content.slice(0, MAX_TEXT_FILE_CHARS)}`);
       }
     }
 
@@ -550,13 +576,20 @@ export async function scenarizeCourse(
 
       const message = await (client.beta.messages.create as unknown as (
         p: Record<string, unknown>,
-      ) => Promise<{ content: Array<{ type: string; text?: string }> }>)({
+      ) => Promise<{ stop_reason: string; content: Array<{ type: string; text?: string }> }>)({
         model: MODEL,
         max_tokens: MAX_TOKENS_STRUCTURE,
         system: structureSystemPrompt,
         messages: [{ role: 'user', content: userContent }],
         betas: ['pdfs-2024-09-25'],
       });
+
+      if (message.stop_reason === 'max_tokens') {
+        sendSSE(res, 'error', {
+          message: 'Réponse tronquée (limite de tokens atteinte). Réduis le nombre de modules ou de fichiers et réessaie.',
+        });
+        return;
+      }
 
       structureText = message.content
         .filter((b) => b.type === 'text')
@@ -582,7 +615,7 @@ export async function scenarizeCourse(
     let structure: ScenStructure;
     const jsonText = extractJsonBlock(structureText);
     try {
-      structure = JSON.parse(jsonText) as ScenStructure;
+      structure = guardStructure(JSON.parse(jsonText) as ScenStructure);
     } catch (e) {
       // Check truncation on the EXTRACTED json, not the raw text
       // (raw text may end with ``` from markdown fences, not })
