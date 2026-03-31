@@ -22,6 +22,13 @@ interface ScenResult {
   meta: ScenMeta;
 }
 
+interface NodeProgress {
+  done: number;
+  total: number;
+  lastName: string;
+  lastType: string;
+}
+
 const LEVELS = [
   'Primaire',
   'Collège',
@@ -151,28 +158,39 @@ function FileDropZone({
 // ─── Progress step ────────────────────────────────────────────────────────────
 
 const PROGRESS_STEPS = [
-  { key: 'analyzing', label: 'Analyse des fichiers' },
-  { key: 'generating', label: 'Scénarisation IA' },
-  { key: 'converting', label: 'Conversion mindmap' },
+  { key: 'structure', label: 'Structure' },
+  { key: 'content',   label: 'Contenu' },
+  { key: 'converting', label: 'Mindmap' },
 ];
+
+const SUBTYPES_LABELS: Record<string, string> = {
+  page: '📄 Page',
+  quiz: '❓ Quiz',
+  assign: '📋 Devoir',
+  forum: '💬 Forum',
+  url: '🔗 URL',
+};
 
 function ProgressView({
   currentStep,
   statusMessage,
   streamText,
+  nodeProgress,
   onCancel,
 }: {
   currentStep: string;
   statusMessage: string;
   streamText: string;
+  nodeProgress: NodeProgress | null;
   onCancel: () => void;
 }) {
   const stepIdx = PROGRESS_STEPS.findIndex((s) => s.key === currentStep);
+  const isContentStep = currentStep === 'content' && nodeProgress;
 
   return (
-    <div className="space-y-6 py-2">
-      {/* Steps */}
-      <div className="flex items-center gap-0">
+    <div className="space-y-5 py-2">
+      {/* Step indicators */}
+      <div className="flex items-center">
         {PROGRESS_STEPS.map((s, i) => {
           const done = i < stepIdx;
           const active = i === stepIdx;
@@ -190,25 +208,49 @@ function ProgressView({
                 </div>
               </div>
               {i < PROGRESS_STEPS.length - 1 && (
-                <div className={`h-px flex-1 mx-2 ${done ? 'bg-emerald-500/50' : 'bg-slate-700'}`} />
+                <div className={`h-px flex-1 mx-3 ${done ? 'bg-emerald-500/40' : 'bg-slate-700'}`} />
               )}
             </div>
           );
         })}
       </div>
 
-      {/* Status */}
+      {/* Status message */}
       <div className="flex items-center gap-3 text-sm text-slate-300">
         <span className="w-4 h-4 border-2 border-indigo-500/40 border-t-indigo-400 rounded-full animate-spin flex-shrink-0" />
         {statusMessage}
       </div>
 
-      {/* Stream preview */}
-      {streamText && (
-        <div className="bg-slate-800/80 rounded-lg p-3 max-h-40 overflow-y-auto">
-          <div className="text-xs text-slate-500 mb-1 font-mono">Génération en cours…</div>
+      {/* Content generation progress bar */}
+      {isContentStep && (
+        <div className="space-y-2">
+          <div className="flex justify-between text-xs text-slate-400">
+            <span>{nodeProgress.done}/{nodeProgress.total} nœuds générés</span>
+            <span>{Math.round((nodeProgress.done / nodeProgress.total) * 100)}%</span>
+          </div>
+          <div className="w-full bg-slate-700 rounded-full h-1.5">
+            <div
+              className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
+              style={{ width: `${(nodeProgress.done / nodeProgress.total) * 100}%` }}
+            />
+          </div>
+          {nodeProgress.lastName && (
+            <div className="text-xs text-slate-500 flex items-center gap-1.5">
+              <span className="text-emerald-400">✓</span>
+              <span>{SUBTYPES_LABELS[nodeProgress.lastType] ?? nodeProgress.lastType}</span>
+              <span className="text-slate-600">—</span>
+              <span className="truncate max-w-[280px]">{nodeProgress.lastName}</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Stream preview (structure phase) */}
+      {streamText && !isContentStep && (
+        <div className="bg-slate-800/80 rounded-lg p-3 max-h-32 overflow-y-auto">
+          <div className="text-xs text-slate-500 mb-1">Structure en cours…</div>
           <div className="text-xs text-slate-400 font-mono whitespace-pre-wrap leading-relaxed">
-            {streamText.slice(-800)}
+            {streamText.slice(-600)}
             <span className="inline-block w-1.5 h-3 bg-indigo-400 animate-pulse ml-0.5" />
           </div>
         </div>
@@ -376,9 +418,10 @@ export function ScenarizationModal({ onClose }: Props) {
 
   // Flow state
   const [step, setStep] = useState<Step>('setup');
-  const [currentProgressStep, setCurrentProgressStep] = useState('analyzing');
+  const [currentProgressStep, setCurrentProgressStep] = useState('structure');
   const [statusMessage, setStatusMessage] = useState('');
   const [streamText, setStreamText] = useState('');
+  const [nodeProgress, setNodeProgress] = useState<NodeProgress | null>(null);
   const [error, setError] = useState('');
   const [result, setResult] = useState<ScenResult | null>(null);
   const [applied, setApplied] = useState(false);
@@ -396,10 +439,11 @@ export function ScenarizationModal({ onClose }: Props) {
   const handleGenerate = async () => {
     setError('');
     setStreamText('');
+    setNodeProgress(null);
     setResult(null);
     setApplied(false);
     setStep('generating');
-    setCurrentProgressStep('analyzing');
+    setCurrentProgressStep('structure');
     setStatusMessage('Analyse des fichiers…');
 
     const controller = new AbortController();
@@ -411,10 +455,20 @@ export function ScenarizationModal({ onClose }: Props) {
         (event, data) => {
           const d = data as Record<string, unknown>;
           if (event === 'progress') {
-            setCurrentProgressStep((d.step as string) ?? 'analyzing');
+            setCurrentProgressStep((d.step as string) ?? 'structure');
             setStatusMessage((d.message as string) ?? '');
+            if (d.total) {
+              setNodeProgress({ done: 0, total: d.total as number, lastName: '', lastType: '' });
+            }
           } else if (event === 'delta') {
             setStreamText((prev) => prev + ((d.text as string) ?? ''));
+          } else if (event === 'node_done') {
+            setNodeProgress({
+              done: (d.index as number) ?? 0,
+              total: (d.total as number) ?? 0,
+              lastName: (d.name as string) ?? '',
+              lastType: (d.type as string) ?? '',
+            });
           } else if (event === 'done') {
             const nodes = (d.nodes as MindmapNode[]) ?? [];
             const edges = (d.edges as MindmapEdge[]) ?? [];
@@ -594,6 +648,7 @@ export function ScenarizationModal({ onClose }: Props) {
               currentStep={currentProgressStep}
               statusMessage={statusMessage}
               streamText={streamText}
+              nodeProgress={nodeProgress}
               onCancel={handleCancel}
             />
           )}
