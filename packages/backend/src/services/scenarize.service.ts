@@ -8,10 +8,10 @@ const MODEL_STRUCTURE = 'claude-opus-4-6';
 const MODEL_CONTENT = 'claude-sonnet-4-6';
 // Step 1: structure skeleton output — no HTML, no questions → bounded but can grow with many modules
 const MAX_TOKENS_STRUCTURE = 16000;
-// Step 2: content per node — bounded per call
-const MAX_TOKENS_CONTENT = 2048;
-// Max concurrent content-generation calls
-const CONCURRENCY = 4;
+// Step 2: content per node — 4096 to handle 10-question quizzes + rich HTML pages
+const MAX_TOKENS_CONTENT = 4096;
+// Max concurrent content-generation calls (keep at 2 to avoid rate limits with many tasks)
+const CONCURRENCY = 2;
 // Max chars per text/markdown file before truncation (~7500 tokens)
 const MAX_TEXT_FILE_CHARS = 30_000;
 // Max words for contentContext injected into content calls
@@ -210,7 +210,7 @@ async function withConcurrency<T>(
         results[idx] = result;
         onDone?.(idx, result);
       } catch (err) {
-        console.error(`[scenarize:content] task ${idx} failed:`, (err as Error).message);
+        console.error(`[scenarize:content] task-${idx} failed:`, (err as Error).message);
         results[idx] = null;
         onDone?.(idx, null);
       }
@@ -317,6 +317,9 @@ async function generatePageHtml(
       content: `Page : "${name}"\nObjectif : ${description}\nContenu source :\n${context}\nLangue : ${language}\n\nGénère le contenu HTML complet de cette page.`,
     }],
   });
+  if (message.stop_reason === 'max_tokens') {
+    console.warn(`[scenarize:page] "${name}" hit max_tokens — partial HTML returned`);
+  }
   return message.content
     .filter((b) => b.type === 'text')
     .map((b) => (b as { type: 'text'; text: string }).text)
@@ -360,10 +363,15 @@ Génère EXACTEMENT ${questionCount} questions variées. Retourne uniquement le 
     .map((b) => (b as { type: 'text'; text: string }).text)
     .join('');
 
+  if (message.stop_reason === 'max_tokens') {
+    console.warn(`[scenarize:quiz] "${name}" hit max_tokens — JSON likely truncated`);
+  }
   try {
     const parsed = JSON.parse(extractJsonArray(raw)) as unknown[];
     return injectQuizIds(parsed);
-  } catch {
+  } catch (e) {
+    console.error(`[scenarize:quiz] "${name}" parse error: ${(e as Error).message}`);
+    console.error(`[scenarize:quiz] raw tail: ${raw.slice(-300)}`);
     return [];
   }
 }
