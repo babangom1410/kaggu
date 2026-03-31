@@ -4,7 +4,7 @@ import { initSSE, sendSSE } from './llm.service';
 
 const MODEL = 'claude-sonnet-4-6';
 // Step 1: structure only — output is always small (< 3000 tokens)
-const MAX_TOKENS_STRUCTURE = 4096;
+const MAX_TOKENS_STRUCTURE = 6000;
 // Step 2: content per node — bounded per call
 const MAX_TOKENS_CONTENT = 2048;
 // How many content-generation calls to run in parallel
@@ -580,10 +580,16 @@ export async function scenarizeCourse(
 
     // Parse structure
     let structure: ScenStructure;
+    const jsonText = extractJsonBlock(structureText);
     try {
-      structure = JSON.parse(extractJsonBlock(structureText)) as ScenStructure;
+      structure = JSON.parse(jsonText) as ScenStructure;
     } catch (e) {
-      const isTruncated = !structureText.trimEnd().endsWith('}');
+      // Check truncation on the EXTRACTED json, not the raw text
+      // (raw text may end with ``` from markdown fences, not })
+      const trimmed = jsonText.trimEnd();
+      const isTruncated = trimmed.length > 50 && !trimmed.endsWith('}');
+      console.error('[scenarize:structure] parse error:', (e as Error).message);
+      console.error('[scenarize:structure] extracted end:', trimmed.slice(-150));
       sendSSE(res, 'error', {
         message: isTruncated
           ? 'Structure tronquée. Réduis le nombre de modules et réessaie.'
