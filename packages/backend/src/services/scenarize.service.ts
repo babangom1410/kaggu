@@ -3,7 +3,8 @@ import type { Response } from 'express';
 import { initSSE, sendSSE } from './llm.service';
 
 const MODEL = 'claude-sonnet-4-6';
-const MAX_TOKENS = 8192;
+const MAX_TOKENS_STREAM = 8192;
+const MAX_TOKENS_PDF = 16000; // Extended output for PDF-heavy requests
 
 function getClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -386,26 +387,20 @@ Retourne UNIQUEMENT un JSON valide (sans texte avant ni après, sans blocs markd
   ]
 }
 
-RÈGLES IMPORTANTES :
-- "shortname" : exactement 10 caractères max, majuscules, sans espaces (ex: "PYTHON101", "HIST2025")
-- "content" des pages : HTML simple uniquement (h2, h3, p, ul, ol, li, strong, em, hr) — JAMAIS html/head/body/script
-- Quiz : 3 à 5 questions par quiz, types variés (multichoice, truefalse, shortanswer, numerical si pertinent)
+RÈGLES DE CONCISION (CRITIQUES — respecter pour éviter la troncature) :
+- "shortname" : max 10 caractères, majuscules, sans espaces
+- "content" des pages : max 3 phrases HTML courtes (h2 + p + ul max 3 items) — JAMAIS html/head/body/script
+- "description" : 1 phrase maximum
+- Quiz : EXACTEMENT 2 questions par quiz (pas plus), textes courts (< 15 mots)
+- "answers" : max 3 réponses par question multichoice, feedback 2 mots max
+- "generalfeedback" : optionnel, 5 mots max si présent
 - "completion" : 1=vu, 2=noté (quiz/devoir=2, page/url=1)
-- Activités disponibles : quiz, assign, forum, lesson
-- Ressources disponibles : page, url, book
-- Pour les "url" : { "type": "resource", "subtype": "url", "name": "...", "url": "https://...", "description": "...", "completion": 1 }
-- BranchNode (parcours conditionnel) : à utiliser UNIQUEMENT si la différenciation est pédagogiquement justifiée et importante.
-  Format :
-  {
-    "type": "branch",
-    "conditionType": "grade",
-    "gradeMin": 60,
-    "referenceNodeName": "Quiz : Nom exact du quiz précédent",
-    "trueNode": { "type": "activity", "subtype": "assign", "name": "...", "description": "...", "maxgrade": 20, "submissiontype": "online_text", "completion": 2 },
-    "falseNode": { "type": "resource", "subtype": "page", "name": "Révisions : ...", "content": "<p>...</p>", "completion": 1 }
-  }
-- Si aucun contenu de fichier n'est fourni, génère un cours cohérent basé sur le titre/sujet déduit des paramètres
-- Respecte STRICTEMENT le nombre de modules demandé : ${params.moduleCount} sections`;
+- Activités disponibles : quiz, assign, forum
+- Ressources disponibles : page, url
+- Pour les "url" : { "type": "resource", "subtype": "url", "name": "...", "url": "https://example.com", "description": ".", "completion": 1 }
+- BranchNode : UNIQUEMENT si le contexte additionnel le demande explicitement ou si pédagogiquement indispensable
+- Respecte STRICTEMENT le nombre de modules : ${params.moduleCount} sections
+- PRIORITÉ ABSOLUE : retourner un JSON complet et valide, même si le contenu est court`;
 }
 
 // ─── Main export ──────────────────────────────────────────────────────────────
@@ -470,12 +465,12 @@ export async function scenarizeCourse(
 
       const message = await (client.beta.messages.create as unknown as (
         params: Record<string, unknown>,
-      ) => Promise<{ content: Array<{ type: string; text?: string }> }>)({
+      ) => Promise<{ content: Array<{ type: string; text?: string }>; stop_reason?: string }>)({
         model: MODEL,
-        max_tokens: MAX_TOKENS,
+        max_tokens: MAX_TOKENS_PDF,
         system: systemPrompt,
         messages: [{ role: 'user', content: userContent }],
-        betas: ['pdfs-2024-09-25'],
+        betas: ['pdfs-2024-09-25', 'output-128k-2025-02-19'],
       });
 
       fullText = message.content
@@ -486,7 +481,7 @@ export async function scenarizeCourse(
       // Use streaming for text-only inputs
       const stream = client.messages.stream({
         model: MODEL,
-        max_tokens: MAX_TOKENS,
+        max_tokens: MAX_TOKENS_STREAM,
         system: systemPrompt,
         messages: [{ role: 'user', content: userContent as Anthropic.ContentBlockParam[] }],
       });
@@ -506,8 +501,15 @@ export async function scenarizeCourse(
     let scenResult: ScenResult;
     try {
       scenResult = JSON.parse(jsonText) as ScenResult;
-    } catch {
-      sendSSE(res, 'error', { message: `Impossible d'analyser le JSON généré. Réessaie.` });
+    } catch (parseErr) {
+      const preview = fullText.slice(-300); // last 300 chars to detect truncation
+      const isTruncated = fullText.length > 100 && !fullText.trimEnd().endsWith('}');
+      const hint = isTruncated
+        ? 'La réponse a été tronquée (trop de contenu). Réduis le nombre de modules ou simplifie le contexte.'
+        : 'Format JSON invalide retourné par le modèle.';
+      console.error('[scenarize] JSON parse error:', (parseErr as Error).message);
+      console.error('[scenarize] Raw end:', preview);
+      sendSSE(res, 'error', { message: `${hint} (fin de réponse : …${preview.slice(-120)})` });
       return;
     }
 
