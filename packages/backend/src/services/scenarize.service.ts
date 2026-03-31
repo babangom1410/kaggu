@@ -17,6 +17,10 @@ const CONCURRENCY = 4;
 const MAX_TEXT_FILE_CHARS = 30_000;
 // Max words for contentContext injected into content calls
 const MAX_CONTEXT_WORDS = 120;
+// Hard cap on questions per quiz regardless of what Phase 1 returns
+const MAX_QUESTIONS_PER_QUIZ = 8;
+// Per-task API timeout (ms) — prevents a hung call from blocking the pool indefinitely
+const CONTENT_TASK_TIMEOUT_MS = 90_000;
 
 function getClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -225,6 +229,16 @@ async function withConcurrency<T>(
   return results;
 }
 
+/** Race a promise against a timeout; throws if the timeout fires first */
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`${label} timed out after ${ms / 1000}s`)), ms),
+    ),
+  ]);
+}
+
 // ─── Step 1: structure-only prompt ────────────────────────────────────────────
 
 function buildStructurePrompt(params: ScenarizationParams): string {
@@ -291,7 +305,7 @@ RÈGLES STRICTES :
 - "shortname" : max 10 caractères, MAJUSCULES, sans espaces
 - Nodes "page" et "quiz" : description courte (1 phrase) — le contenu sera généré séparément
 - Nodes "assign" et "forum" : description complète (3-5 phrases) — elle sera utilisée directement
-- "questionCount" : entre 3 et 5 pour les quiz
+- "questionCount" : entre 3 et ${MAX_QUESTIONS_PER_QUIZ} pour les quiz — JAMAIS plus
 - Pas de champ "content" ni "questions" dans cette étape
 - "contentContext" : résumé fidèle du contenu PDF de ce module (si fichiers fournis) ou contenu synthétisé
 - Respecte EXACTEMENT ${params.moduleCount} sections
@@ -399,10 +413,10 @@ function collectContentTasks(structure: ScenStructure): ContentTask[] {
     section.nodes.forEach((item, nIdx) => {
       if (item.type === 'branch') {
         const branch = item as ScenBranchSkeleton;
-        if (needsContentGeneration(branch.trueNode)) {
+        if (branch.trueNode && needsContentGeneration(branch.trueNode)) {
           tasks.push({ sectionIdx: sIdx, nodeIdx: nIdx, isBranchChild: 'true', node: branch.trueNode, context });
         }
-        if (needsContentGeneration(branch.falseNode)) {
+        if (branch.falseNode && needsContentGeneration(branch.falseNode)) {
           tasks.push({ sectionIdx: sIdx, nodeIdx: nIdx, isBranchChild: 'false', node: branch.falseNode, context });
         }
       } else {
@@ -551,6 +565,9 @@ export async function scenarizeCourse(
   const client = getClient();
   initSSE(res);
 
+  // Start heartbeat immediately — keeps proxy alive during Phase 1 (Opus, 30-60s) AND Phase 2
+  const heartbeat = startHeartbeat(res);
+
   try {
     // ── PHASE 1: generate structure skeleton ──────────────────────────────────
 
@@ -687,19 +704,24 @@ export async function scenarizeCourse(
     }
 
     let doneCount = 0;
-    const heartbeat = startHeartbeat(res);
 
     const contentTaskFns = tasks.map((task) => async () => {
       const node = getEnrichedNode(task);
       const context = structure.sections[task.sectionIdx].contentContext || structure.sections[task.sectionIdx].summary;
 
       if (node.subtype === 'page') {
-        const html = await generatePageHtml(client, node.name, node.description, context, params.language);
+        const html = await withTimeout(
+          generatePageHtml(client, node.name, node.description, context, params.language),
+          CONTENT_TASK_TIMEOUT_MS,
+          `page "${node.name}"`,
+        );
         node.content = html;
       } else if (node.subtype === 'quiz') {
-        const questions = await generateQuizForScen(
-          client, node.name, node.description, context,
-          task.node.questionCount ?? 3, params.language,
+        const count = Math.min(task.node.questionCount ?? 5, MAX_QUESTIONS_PER_QUIZ);
+        const questions = await withTimeout(
+          generateQuizForScen(client, node.name, node.description, context, count, params.language),
+          CONTENT_TASK_TIMEOUT_MS,
+          `quiz "${node.name}"`,
         );
         node.questions = questions;
       }
@@ -714,7 +736,6 @@ export async function scenarizeCourse(
     });
 
     await withConcurrency(contentTaskFns, CONCURRENCY);
-    clearInterval(heartbeat);
 
     // ── PHASE 3: convert to mindmap ───────────────────────────────────────────
 
@@ -726,6 +747,7 @@ export async function scenarizeCourse(
   } catch (err) {
     sendSSE(res, 'error', { message: (err as Error).message });
   } finally {
+    clearInterval(heartbeat);
     res.end();
   }
 }

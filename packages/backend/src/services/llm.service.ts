@@ -18,6 +18,8 @@ export function initSSE(res: Response): void {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  // Disable buffering on nginx/Caddy/other proxies — critical for SSE
+  res.setHeader('X-Accel-Buffering', 'no');
   res.flushHeaders();
 }
 
