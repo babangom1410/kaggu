@@ -19,21 +19,31 @@ import {
   uploadFileToDraft,
 } from './moodle.service';
 
-interface BackendNode {
+export interface BackendNode {
   id: string;
   type: 'course' | 'section' | 'resource' | 'activity' | 'branch';
   position: { x: number; y: number };
   data: Record<string, unknown>;
 }
 
-interface BackendEdgeWithHandle extends BackendEdge {
+export interface BackendEdgeWithHandle extends BackendEdge {
   sourceHandle?: string;
 }
 
-interface BackendEdge {
+export interface BackendEdge {
   id: string;
   source: string;
   target: string;
+}
+
+export interface Restriction {
+  type: 'date' | 'grade' | 'completion';
+  direction?: '>=' | '<';
+  date?: string;
+  nodeId?: string;
+  min?: number;
+  max?: number;
+  expected?: 1 | 0;
 }
 
 interface MoodleMapping {
@@ -69,33 +79,26 @@ function sortByPosition(nodes: BackendNode[]): BackendNode[] {
   return [...nodes].sort((a, b) => a.position.x - b.position.x || a.position.y - b.position.y);
 }
 
-interface Restriction {
-  type: 'date' | 'grade' | 'completion';
-  direction?: '>=' | '<';
-  date?: string;
-  nodeId?: string;
-  min?: number;
-  max?: number;
-  expected?: 1 | 0;
-}
-
 interface AvailabilityResult {
   json: string | null;
   /** Names of referenced modules that were skipped because they have no completion tracking */
   skippedNoCompletion: string[];
+  /** Names of referenced modules whose grade condition had no threshold defined */
+  skippedNoGradeThreshold: string[];
 }
 
-function buildAvailabilityJson(
+export function buildAvailabilityJson(
   restrictions: Restriction[],
   mappings: Map<string, { moodle_id: number; moodle_type: string }>,
   nodes: BackendNode[],
   operator?: string,
 ): AvailabilityResult {
-  if (!restrictions || restrictions.length === 0) return { json: null, skippedNoCompletion: [] };
+  if (!restrictions || restrictions.length === 0) return { json: null, skippedNoCompletion: [], skippedNoGradeThreshold: [] };
 
   const conditions: unknown[] = [];
   const showc: boolean[] = [];
   const skippedNoCompletion: string[] = [];
+  const skippedNoGradeThreshold: string[] = [];
 
   for (const r of restrictions) {
     if (r.type === 'date') {
@@ -107,6 +110,12 @@ function buildAvailabilityJson(
     } else if (r.type === 'grade') {
       const mapping = r.nodeId ? mappings.get(r.nodeId) : null;
       if (!mapping || mapping.moodle_type !== 'module') continue;
+      // Grade condition without a min or max threshold is meaningless — skip and warn.
+      if (r.min === undefined && r.max === undefined) {
+        const refNode = r.nodeId ? nodes.find((n) => n.id === r.nodeId) : null;
+        skippedNoGradeThreshold.push(String(refNode?.data?.name ?? r.nodeId ?? 'unknown'));
+        continue;
+      }
       const cond: Record<string, unknown> = { type: 'grade', id: mapping.moodle_id };
       if (r.min !== undefined) cond.min = r.min / 100;
       if (r.max !== undefined) cond.max = r.max / 100;
@@ -130,9 +139,9 @@ function buildAvailabilityJson(
     }
   }
 
-  if (conditions.length === 0) return { json: null, skippedNoCompletion };
+  if (conditions.length === 0) return { json: null, skippedNoCompletion, skippedNoGradeThreshold };
   const op = operator === '|' ? '|' : '&';
-  return { json: JSON.stringify({ op, c: conditions, showc }), skippedNoCompletion };
+  return { json: JSON.stringify({ op, c: conditions, showc }), skippedNoCompletion, skippedNoGradeThreshold };
 }
 
 function buildCompletionFields(data: Record<string, unknown>): {
@@ -477,7 +486,7 @@ function detectCircularRestrictions(nodes: BackendNode[]): string[] {
  * children of branch nodes attached to activities in that section.
  * Branch nodes themselves are skipped (they have no Moodle equivalent).
  */
-function collectSectionModules(
+export function collectSectionModules(
   sectionId: string,
   edges: BackendEdgeWithHandle[],
   nodes: BackendNode[],
@@ -514,7 +523,7 @@ function collectSectionModules(
  * from the branch's reference activity (always derived from graph — robust
  * even when node.data.restrictions was not populated at creation time).
  */
-function deriveModuleRestrictions(
+export function deriveModuleRestrictions(
   node: BackendNode,
   edges: BackendEdgeWithHandle[],
   nodes: BackendNode[],
@@ -535,19 +544,26 @@ function deriveModuleRestrictions(
 
   const refNodeId = refEdge.source;
   const isTrue = parentEdge.sourceHandle === 'source-true';
+  const conditionType = String(parentNode.data.conditionType ?? 'completion');
 
-  const branchRestriction: Restriction = {
-    type: 'completion',
-    nodeId: refNodeId,
-    expected: isTrue ? 1 : 0,
-  };
+  let branchRestriction: Restriction;
+  if (conditionType === 'grade') {
+    const gradeMin = parentNode.data.gradeMin as number | undefined;
+    branchRestriction = isTrue
+      ? { type: 'grade', nodeId: refNodeId, min: gradeMin }
+      : { type: 'grade', nodeId: refNodeId, max: gradeMin };
+  } else {
+    branchRestriction = { type: 'completion', nodeId: refNodeId, expected: isTrue ? 1 : 0 };
+  }
 
   // Avoid duplicating if already present in node.data
-  const alreadyPresent = existing.some(
-    (r) => r.type === 'completion' &&
-           (r as { nodeId?: string }).nodeId === refNodeId &&
-           (r as { expected?: number }).expected === branchRestriction.expected,
-  );
+  const alreadyPresent = existing.some((r) => {
+    if (r.nodeId !== refNodeId || r.type !== branchRestriction.type) return false;
+    if (r.type === 'completion') return (r as { expected?: number }).expected === (branchRestriction as { expected?: number }).expected;
+    if (r.type === 'grade') return (r as { min?: number }).min === (branchRestriction as { min?: number }).min
+      && (r as { max?: number }).max === (branchRestriction as { max?: number }).max;
+    return false;
+  });
 
   return {
     restrictions: alreadyPresent ? existing : [branchRestriction, ...existing],
@@ -700,6 +716,9 @@ export async function exportProject(
     }
   }
 
+  // Track sectionid (DB id) for each section node — used for second-pass availability update
+  const sectionIdMap = new Map<string, number>();
+
   // 7. Create or update sections
   for (let i = 0; i < sectionNodes.length; i++) {
     const sectionNode = sectionNodes[i];
@@ -710,13 +729,29 @@ export async function exportProject(
     const existingSection = mappings.get(sectionNode.id);
 
     try {
-      const result = await ensureSection(config, moodleCourseId, sectionNum, sectionName, sectionSummary);
+      // Build section availability JSON from manually-set restrictions
+      const sectionRestrictions = (sectionNode.data.restrictions ?? []) as Restriction[];
+      const { json: sectionAvailability, skippedNoCompletion: secSkipped, skippedNoGradeThreshold: secSkippedGrade } =
+        buildAvailabilityJson(sectionRestrictions, mappings, nodes, sectionNode.data.restrictionOperator as string | undefined);
+      for (const refName of secSkipped) {
+        report.errors.push({ nodeId: sectionNode.id, nodeName: sectionName, error: `Restriction de section ignorée : "${refName}" n'a pas d'achèvement activé.` });
+      }
+      for (const refName of secSkippedGrade) {
+        report.errors.push({ nodeId: sectionNode.id, nodeName: sectionName, error: `Restriction de note de section ignorée : "${refName}" n'a pas de seuil défini.` });
+      }
+
+      const result = await ensureSection(
+        config, moodleCourseId, sectionNum, sectionName, sectionSummary,
+        sectionAvailability ?? undefined,
+      );
       if (existingSection) {
         if (existingSection.checksum !== sectionChecksum) report.updated++;
       } else {
         report.created++;
       }
       await upsertMapping(sectionNode.id, 'section', result.sectionnum, sectionChecksum);
+      // Also track sectionid locally for second-pass availability update
+      sectionIdMap.set(sectionNode.id, result.sectionid);
     } catch (err) {
       const msg = err instanceof MoodleError ? err.message : String(err);
       report.errors.push({ nodeId: sectionNode.id, nodeName: sectionName, error: msg });
@@ -743,13 +778,20 @@ export async function exportProject(
       const existingModule = mappings.get(moduleNode.id);
       const completionFields = buildCompletionFields(moduleNode.data);
       const { restrictions, operator } = deriveModuleRestrictions(moduleNode, edges, nodes);
-      const { json: availabilityJson, skippedNoCompletion } = buildAvailabilityJson(restrictions, mappings, nodes, operator);
+      const { json: availabilityJson, skippedNoCompletion, skippedNoGradeThreshold } = buildAvailabilityJson(restrictions, mappings, nodes, operator);
       const availability = availabilityJson ?? '';
       for (const refName of skippedNoCompletion) {
         report.errors.push({
           nodeId: moduleNode.id,
           nodeName,
           error: `Restriction ignorée : "${refName}" n'a pas de suivi d'achèvement activé. Activez l'achèvement sur ce module pour que la restriction fonctionne.`,
+        });
+      }
+      for (const refName of skippedNoGradeThreshold) {
+        report.errors.push({
+          nodeId: moduleNode.id,
+          nodeName,
+          error: `Restriction de note ignorée : "${refName}" n'a pas de seuil défini. Configurez une note minimale dans le nœud conditionnel.`,
         });
       }
 
@@ -845,6 +887,29 @@ export async function exportProject(
       }
     }
   }
+
+  // Second pass: re-apply availability for sections whose restrictions reference
+  // modules created in this same export run (cmids now resolved).
+  for (let i = 0; i < sectionNodes.length; i++) {
+    const sectionNode = sectionNodes[i];
+    const sectionRestrictions = (sectionNode.data.restrictions ?? []) as Restriction[];
+    if (sectionRestrictions.length === 0) continue;
+    const { json: sectionAvail2 } = buildAvailabilityJson(
+      sectionRestrictions, mappings, nodes, sectionNode.data.restrictionOperator as string | undefined,
+    );
+    if (!sectionAvail2) continue;
+    try {
+      await ensureSection(
+        config,
+        moodleCourseId,
+        i + 1,
+        String(sectionNode.data.name || 'Section'),
+        String(sectionNode.data.summary || ''),
+        sectionAvail2,
+      );
+    } catch { /* Non-fatal */ }
+  }
+  void sectionIdMap; // reserved for future direct DB-id operations
 
   // Second pass: re-apply availability for modules whose restrictions reference
   // other modules created in the same export run (cmids now resolved).

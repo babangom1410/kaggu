@@ -23,6 +23,7 @@ interface ImportedEdge {
   id: string;
   source: string;
   target: string;
+  sourceHandle?: string;
 }
 
 const COURSE_X = 400;
@@ -97,6 +98,9 @@ export async function importFromMoodle(
   const totalWidth = (totalSections - 1) * SECTION_SPACING;
   const sectionStartX = COURSE_X - totalWidth / 2;
 
+  // Track sectionNodeIds indexed by contentSections order for BranchNode reconstruction
+  const sectionNodeIds: string[] = [];
+
   const mappingsToUpsert: Array<{
     project_id: string;
     node_id: string;
@@ -119,6 +123,8 @@ export async function importFromMoodle(
     const section = contentSections[si];
     const sectionNodeId = `section-${section.section}-${Date.now()}-${si}`;
     const sectionX = sectionStartX + si * SECTION_SPACING;
+
+    sectionNodeIds.push(sectionNodeId);
 
     nodes.push({
       id: sectionNodeId,
@@ -161,6 +167,7 @@ export async function importFromMoodle(
       let data: Record<string, unknown> = {
         name: mod.name,
         visible: mod.visible !== 0,
+        completion: mod.completion ?? 0,
       };
 
       if (type === 'activity') {
@@ -368,6 +375,104 @@ export async function importFromMoodle(
       }
     }),
   );
+
+  // 6.5 Reconstruct BranchNodes from Moodle availability data
+  // Pattern: two modules in the same section referencing the same cmid via completion conditions (e=1 and e=0)
+  {
+    // Build cmid → nodeId lookup from mappings
+    const cmidToNodeId = new Map<number, string>();
+    for (const m of mappingsToUpsert) {
+      if (m.moodle_type === 'module') {
+        cmidToNodeId.set(m.moodle_id, m.node_id);
+      }
+    }
+
+    interface AvailCond { type: string; cm: number; e: number }
+    interface BranchGroup { refNodeId: string; trueNodeId: string | null; falseNodeId: string | null }
+
+    for (let si = 0; si < contentSections.length; si++) {
+      const section = contentSections[si];
+      const sectionNodeId = sectionNodeIds[si];
+
+      const branchGroups = new Map<number, BranchGroup>();
+
+      for (const mod of section.modules) {
+        if (!mod.availability) continue;
+        try {
+          const avail = JSON.parse(mod.availability as string) as { c?: AvailCond[] };
+          for (const cond of avail.c ?? []) {
+            if (cond.type !== 'completion') continue;
+            const refNodeId = cmidToNodeId.get(cond.cm);
+            if (!refNodeId) continue;
+            if (!branchGroups.has(cond.cm)) {
+              branchGroups.set(cond.cm, { refNodeId, trueNodeId: null, falseNodeId: null });
+            }
+            const group = branchGroups.get(cond.cm)!;
+            const childNodeId = cmidToNodeId.get(mod.id);
+            if (!childNodeId) continue;
+            if (cond.e === 1) group.trueNodeId = childNodeId;
+            else group.falseNodeId = childNodeId;
+          }
+        } catch { /* ignore malformed availability JSON */ }
+      }
+
+      for (const [, group] of branchGroups) {
+        if (!group.trueNodeId && !group.falseNodeId) continue;
+
+        const refNode = nodeMap.get(group.refNodeId);
+        if (!refNode) continue;
+
+        // Create BranchNode below the reference node
+        const branchNodeId = `branch-${group.refNodeId}-${Date.now()}`;
+        const branchNode: ImportedNode = {
+          id: branchNodeId,
+          type: 'branch',
+          position: { x: refNode.position.x, y: refNode.position.y + 120 },
+          data: { label: '🔀', conditionType: 'completion' },
+        };
+        nodes.push(branchNode);
+        nodeMap.set(branchNodeId, branchNode);
+
+        // Edge: refNode → branchNode
+        edges.push({ id: `edge-${group.refNodeId}-${branchNodeId}`, source: group.refNodeId, target: branchNodeId });
+
+        if (group.trueNodeId) {
+          // Remove section → trueChild edge (child is now under branch)
+          const idx = edges.findIndex((e) => e.source === sectionNodeId && e.target === group.trueNodeId);
+          if (idx !== -1) edges.splice(idx, 1);
+
+          edges.push({
+            id: `edge-${branchNodeId}-${group.trueNodeId}-true`,
+            source: branchNodeId,
+            target: group.trueNodeId,
+            sourceHandle: 'source-true',
+          });
+
+          const trueNode = nodeMap.get(group.trueNodeId);
+          if (trueNode) {
+            trueNode.position = { x: refNode.position.x + 220, y: refNode.position.y + 120 };
+          }
+        }
+
+        if (group.falseNodeId) {
+          const idx = edges.findIndex((e) => e.source === sectionNodeId && e.target === group.falseNodeId);
+          if (idx !== -1) edges.splice(idx, 1);
+
+          edges.push({
+            id: `edge-${branchNodeId}-${group.falseNodeId}-false`,
+            source: branchNodeId,
+            target: group.falseNodeId,
+            sourceHandle: 'source-false',
+          });
+
+          const falseNode = nodeMap.get(group.falseNodeId);
+          if (falseNode) {
+            falseNode.position = { x: refNode.position.x, y: refNode.position.y + 240 };
+          }
+        }
+      }
+    }
+  }
 
   // 7. Save mappings and update project
   await Promise.all([

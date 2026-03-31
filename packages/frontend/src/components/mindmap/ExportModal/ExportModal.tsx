@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { moodleApi, type ExportReport } from '@/lib/api';
 import { useMindmapStore } from '@/stores/mindmap-store';
 
@@ -9,9 +9,44 @@ interface ExportModalProps {
 type ExportState = 'idle' | 'exporting' | 'done' | 'error';
 
 export function ExportModal({ onClose }: ExportModalProps) {
-  const { projectId, moodleConfig, setMoodleConfig } = useMindmapStore();
+  const { projectId, moodleConfig, setMoodleConfig, nodes, edges } = useMindmapStore();
   const [state, setState] = useState<ExportState>('idle');
   const [isResetting, setIsResetting] = useState(false);
+
+  // Pre-flight warnings for branch nodes
+  const { branchCompletionWarnings, orphanWarnings } = useMemo(() => {
+    const branchCompletionWarnings: string[] = [];
+    const orphanWarnings: string[] = [];
+
+    for (const node of nodes) {
+      if (node.type !== 'branch') continue;
+
+      // Orphan / partial branch check
+      const hasTrueChild = edges.some((e) => e.source === node.id && e.sourceHandle === 'source-true');
+      const hasFalseChild = edges.some((e) => e.source === node.id && e.sourceHandle === 'source-false');
+      const parentEdge = edges.find((e) => e.target === node.id);
+      const refNode = parentEdge ? nodes.find((n) => n.id === parentEdge.source) : null;
+      const refName = refNode
+        ? String((refNode.data as unknown as Record<string, unknown>).name ?? refNode.id)
+        : 'inconnu';
+
+      if (!hasTrueChild && !hasFalseChild) {
+        orphanWarnings.push(`Condition sur "${refName}" : aucune branche OUI ni NON définie (nœud ignoré à l'export).`);
+      } else if (!hasTrueChild || !hasFalseChild) {
+        orphanWarnings.push(`Condition sur "${refName}" : branche ${hasTrueChild ? 'NON' : 'OUI'} vide.`);
+      }
+
+      // Completion tracking check (only relevant for completion-type conditions)
+      const branchData = node.data as unknown as Record<string, unknown>;
+      if (String(branchData.conditionType ?? 'completion') === 'completion' && refNode) {
+        const d = refNode.data as unknown as Record<string, unknown>;
+        if (Number(d.completion ?? 0) === 0) {
+          branchCompletionWarnings.push(`"${refName}" n'a pas d'achèvement activé — la condition sera ignorée par Moodle.`);
+        }
+      }
+    }
+    return { branchCompletionWarnings, orphanWarnings };
+  }, [nodes, edges]);
   const [report, setReport] = useState<ExportReport | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
@@ -110,6 +145,29 @@ export function ExportModal({ onClose }: ExportModalProps) {
               {!moodleConfig?.courseId && (
                 <div className="bg-slate-800 rounded-xl p-3 text-xs text-slate-400">
                   Un nouveau cours sera créé dans Moodle.
+                </div>
+              )}
+              {orphanWarnings.length > 0 && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-3 space-y-1.5">
+                  <div className="text-xs font-semibold text-red-400">
+                    ⚠ Branches conditionnelles incomplètes ({orphanWarnings.length})
+                  </div>
+                  {orphanWarnings.map((w, i) => (
+                    <div key={i} className="text-xs text-red-300/80">{w}</div>
+                  ))}
+                </div>
+              )}
+              {branchCompletionWarnings.length > 0 && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 space-y-1.5">
+                  <div className="text-xs font-semibold text-amber-400">
+                    ⚠ Achèvement non activé ({branchCompletionWarnings.length})
+                  </div>
+                  {branchCompletionWarnings.map((w, i) => (
+                    <div key={i} className="text-xs text-amber-300/80">{w}</div>
+                  ))}
+                  <div className="text-xs text-amber-500/60">
+                    L'export continuera mais ces restrictions seront inactives dans Moodle.
+                  </div>
                 </div>
               )}
               <button

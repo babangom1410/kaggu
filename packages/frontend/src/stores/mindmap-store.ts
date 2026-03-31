@@ -54,6 +54,7 @@ interface MindmapState {
   // Project
   setProjectName: (name: string) => void;
   loadProject: (id: string, name: string, nodes: MindmapNode[], edges: MindmapEdge[], moodleConfig?: MoodleConfig | null) => void;
+  replaceContent: (nodes: MindmapNode[], edges: MindmapEdge[], projectName?: string) => void;
   setSyncStatus: (status: SyncStatus) => void;
 
   // Moodle
@@ -237,6 +238,17 @@ export const useMindmapStore = create<MindmapState>()(
 
         loadProject: (id, name, nodes, edges, moodleConfig) => {
           set({ projectId: id, projectName: name, nodes, edges, moodleConfig: moodleConfig ?? null, past: [], future: [], syncStatus: 'synced' });
+        },
+
+        replaceContent: (nodes, edges, projectName) => {
+          pushHistory();
+          set({
+            nodes,
+            edges,
+            ...(projectName ? { projectName } : {}),
+            future: [],
+          });
+          markDirty();
         },
 
         setSyncStatus: (status) => set({ syncStatus: status }),

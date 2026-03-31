@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { z } from 'zod';
 import { authMiddleware } from '../middleware/auth.middleware';
 import {
@@ -11,6 +11,7 @@ import {
   generateLessonPages,
   generateBookChapters,
 } from '../services/llm.service';
+import { scenarizeCourse } from '../services/scenarize.service';
 
 const router = Router();
 
@@ -181,5 +182,35 @@ router.post('/generate-feedback', async (req, res) => {
     res.status(500).json({ error: (err as Error).message });
   }
 });
+
+// POST /api/v1/llm/scenarize — generate full course mindmap from files + params (SSE)
+router.post(
+  '/scenarize',
+  express.json({ limit: '20mb' }),
+  async (req, res) => {
+    const fileSchema = z.object({
+      name:    z.string().min(1),
+      type:    z.enum(['pdf', 'markdown', 'text']),
+      content: z.string().min(1),
+    });
+
+    const schema = z.object({
+      files:             z.array(fileSchema).max(10).default([]),
+      level:             z.string().min(1).max(100),
+      duration:          z.string().min(1).max(100),
+      moduleCount:       z.number().int().min(1).max(20).default(4),
+      language:          z.string().min(2).max(50).default('Français'),
+      additionalContext: z.string().max(1000).optional(),
+    });
+
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) {
+      res.status(400).json({ error: parsed.error.message });
+      return;
+    }
+
+    await scenarizeCourse(parsed.data, res);
+  },
+);
 
 export default router;

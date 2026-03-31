@@ -56,21 +56,23 @@ class external extends \external_api {
 
     public static function ensure_section_parameters(): \external_function_parameters {
         return new \external_function_parameters([
-            'courseid'   => new \external_value(PARAM_INT,  'Course ID'),
-            'sectionnum' => new \external_value(PARAM_INT,  'Section number (1-based)'),
-            'name'       => new \external_value(PARAM_TEXT, 'Section name'),
-            'summary'    => new \external_value(PARAM_RAW,  'Section summary (HTML)', VALUE_DEFAULT, ''),
+            'courseid'     => new \external_value(PARAM_INT,  'Course ID'),
+            'sectionnum'   => new \external_value(PARAM_INT,  'Section number (1-based)'),
+            'name'         => new \external_value(PARAM_TEXT, 'Section name'),
+            'summary'      => new \external_value(PARAM_RAW,  'Section summary (HTML)', VALUE_DEFAULT, ''),
+            'availability' => new \external_value(PARAM_RAW,  'Availability JSON', VALUE_DEFAULT, null),
         ]);
     }
 
-    public static function ensure_section($courseid, $sectionnum, $name, $summary = ''): array {
+    public static function ensure_section($courseid, $sectionnum, $name, $summary = '', $availability = null): array {
         global $DB;
 
         $params = self::validate_parameters(self::ensure_section_parameters(), [
-            'courseid'   => $courseid,
-            'sectionnum' => $sectionnum,
-            'name'       => $name,
-            'summary'    => $summary,
+            'courseid'     => $courseid,
+            'sectionnum'   => $sectionnum,
+            'name'         => $name,
+            'summary'      => $summary,
+            'availability' => $availability,
         ]);
 
         $course = self::check_license_and_capability($params['courseid']);
@@ -83,12 +85,16 @@ class external extends \external_api {
             'section' => $params['sectionnum'],
         ], '*', MUST_EXIST);
 
-        // Update name and summary
+        // Update name, summary and availability
+        $avail = ($params['availability'] !== null && $params['availability'] !== '')
+            ? $params['availability']
+            : null;
         $DB->update_record('course_sections', (object)[
             'id'            => $section->id,
             'name'          => $params['name'],
             'summary'       => $params['summary'],
             'summaryformat' => FORMAT_HTML,
+            'availability'  => $avail,
         ]);
 
         rebuild_course_cache($params['courseid'], true);

@@ -169,6 +169,8 @@ export interface MoodleModuleInfo {
   intro?: string;
   url?: string;
   contents?: unknown[];
+  completion?: number;
+  availability?: string;
 }
 
 export interface MoodleSectionInfo {
@@ -259,12 +261,14 @@ export async function ensureSection(
   sectionnum: number,
   name: string,
   summary: string,
+  availability?: string,
 ): Promise<KagguSectionResult> {
   return moodleCall<KagguSectionResult>(config, 'local_kaggu_ensure_section', {
     courseid,
     sectionnum,
     name,
     summary,
+    ...(availability !== undefined ? { availability } : {}),
   });
 }
 

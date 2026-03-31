@@ -148,6 +148,7 @@ function SectionHeader({ label, open, onToggle }: { label: string; open: boolean
 }
 
 interface CompletionPanelProps {
+  showCompletion?: boolean;
   data: Record<string, unknown>;
   update: (key: string, value: unknown) => void;
   nodes: MindmapNode[];
@@ -188,7 +189,7 @@ function wouldCreateCycle(depId: string, targetId: string, nodes: MindmapNode[])
   return dfs(depId);
 }
 
-function CompletionPanel({ data, update, nodes, nodeId }: CompletionPanelProps) {
+function CompletionPanel({ data, update, nodes, nodeId, showCompletion = true }: CompletionPanelProps) {
   const [completionOpen, setCompletionOpen] = useState(false);
   const [restrictionsOpen, setRestrictionsOpen] = useState(false);
 
@@ -231,8 +232,8 @@ function CompletionPanel({ data, update, nodes, nodeId }: CompletionPanelProps) 
 
   return (
     <div className="space-y-3 pt-2 border-t border-slate-700/50">
-      {/* Completion */}
-      <div className="space-y-2">
+      {/* Completion — hidden for section nodes */}
+      {showCompletion && <div className="space-y-2">
         <SectionHeader label="Achèvement" open={completionOpen} onToggle={() => setCompletionOpen((v) => !v)} />
         {completionOpen && (
           <div className="space-y-2 pl-1">
@@ -264,7 +265,7 @@ function CompletionPanel({ data, update, nodes, nodeId }: CompletionPanelProps) 
             )}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Restrictions */}
       <div className="space-y-2">
@@ -595,27 +596,107 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
 
         {/* Branch node fields */}
         {node.type === 'branch' && (() => {
-          const { edges: allEdges } = useMindmapStore.getState();
+          const { edges: allEdges, nodes: allNodes } = useMindmapStore.getState();
           const parentEdge = allEdges.find((e) => e.target === nodeId);
           const parentNode = parentEdge ? nodes.find((n) => n.id === parentEdge.source) : null;
           const parentData = parentNode?.data as unknown as Record<string, unknown> | undefined;
           const parentName = parentData ? String(parentData.name ?? parentData.fullname ?? parentNode?.id) : null;
 
+          const trueEdge = allEdges.find((e) => e.source === nodeId && e.sourceHandle === 'source-true');
+          const falseEdge = allEdges.find((e) => e.source === nodeId && e.sourceHandle === 'source-false');
+          const hasTrueChild = !!trueEdge;
+          const hasFalseChild = !!falseEdge;
+          const isOrphan = !hasTrueChild && !hasFalseChild;
+          const isPartial = hasTrueChild !== hasFalseChild;
+
+          const currentConditionType = String(data.conditionType ?? 'completion');
+          const currentGradeMin = data.gradeMin as number | undefined;
+          const refCompletion = Number(parentData?.completion ?? 0);
+          const refNeedsCompletion = currentConditionType === 'completion' && refCompletion === 0;
+          const refIsGradeable = parentNode?.type === 'activity' &&
+            ['quiz', 'assign', 'h5p', 'scorm', 'lesson'].includes(String(parentData?.subtype ?? ''));
+          const refNeedsGrade = currentConditionType === 'grade' && !refIsGradeable;
+
+          // Propagate restriction changes to OUI/NON children
+          const propagateToChildren = (condType: string, gradeMin?: number) => {
+            const refNodeId = parentEdge?.source;
+            if (!refNodeId) return;
+
+            const applyToChild = (childId: string, isTrue: boolean) => {
+              const childNode = allNodes.find((n) => n.id === childId);
+              if (!childNode) return;
+              const childData = childNode.data as unknown as Record<string, unknown>;
+              const existing = (Array.isArray(childData.restrictions) ? childData.restrictions : []) as Restriction[];
+              const filtered = existing.filter(
+                (r) => !((r.type === 'completion' || r.type === 'grade') && r.nodeId === refNodeId),
+              );
+              const newRestriction: Restriction = condType === 'grade'
+                ? (isTrue
+                    ? { type: 'grade', nodeId: refNodeId, min: gradeMin }
+                    : { type: 'grade', nodeId: refNodeId, max: gradeMin })
+                : { type: 'completion', nodeId: refNodeId, expected: isTrue ? 1 : 0 };
+              updateNode(childId, { restrictions: [newRestriction, ...filtered] } as never);
+            };
+
+            if (trueEdge) applyToChild(trueEdge.target, true);
+            if (falseEdge) applyToChild(falseEdge.target, false);
+          };
+
           return (
             <>
-              {parentNode && (
-                <div className="flex items-center gap-2.5 bg-slate-800/60 rounded-xl px-3 py-2.5">
-                  <span className="text-base leading-none">
-                    {parentNode.type === 'activity' ? '📋' : '📄'}
-                  </span>
-                  <div>
-                    <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
-                      Activité de référence
-                    </div>
-                    <div className="text-sm font-medium text-slate-200">{parentName}</div>
-                  </div>
+              {/* Orphan / partial warnings */}
+              {isOrphan && (
+                <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20">
+                  <span className="text-red-400 text-sm leading-none mt-0.5">⚠</span>
+                  <p className="text-xs text-red-400 leading-relaxed">
+                    Ce nœud n'a aucun enfant. Clic droit pour ajouter des ressources ou activités sur les branches OUI et NON.
+                  </p>
                 </div>
               )}
+              {isPartial && (
+                <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20">
+                  <span className="text-amber-400 text-sm leading-none mt-0.5">⚠</span>
+                  <p className="text-xs text-amber-400 leading-relaxed">
+                    La branche <span className="font-semibold">{hasTrueChild ? 'NON' : 'OUI'}</span> est vide.
+                    Clic droit pour y ajouter un nœud.
+                  </p>
+                </div>
+              )}
+
+              {/* Reference activity */}
+              {parentNode && (
+                <div className={`rounded-xl border px-3 py-2.5 ${
+                  refNeedsCompletion || refNeedsGrade
+                    ? 'bg-amber-500/10 border-amber-500/30'
+                    : 'bg-slate-800/60 border-transparent'
+                }`}>
+                  <div className="flex items-center gap-2.5">
+                    <span className="text-base leading-none">
+                      {parentNode.type === 'activity' ? '📋' : '📄'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">
+                        Activité de référence
+                      </div>
+                      <div className="text-sm font-medium text-slate-200 truncate">{parentName}</div>
+                    </div>
+                    {refCompletion > 0 && (
+                      <span className="text-xs text-teal-400 font-semibold shrink-0">✓ achèvement</span>
+                    )}
+                  </div>
+                  {refNeedsCompletion && (
+                    <p className="mt-2 text-xs text-amber-400 leading-relaxed">
+                      ⚠ Activez l'achèvement sur ce nœud (panneau propriétés) pour que la condition fonctionne dans Moodle.
+                    </p>
+                  )}
+                  {refNeedsGrade && (
+                    <p className="mt-2 text-xs text-amber-400 leading-relaxed">
+                      ⚠ Ce type de module n'est pas noté — la condition de note ne fonctionnera pas. Utilisez Quiz, Devoir, H5P, SCORM ou Leçon.
+                    </p>
+                  )}
+                </div>
+              )}
+
               <Field label="Libellé">
                 <TextInput
                   value={String(data.label ?? '')}
@@ -623,10 +704,14 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                   placeholder="ex. Score > 50 % ?"
                 />
               </Field>
+
               <Field label="Type de condition">
                 <select
-                  value={String(data.conditionType ?? 'completion')}
-                  onChange={(e) => update('conditionType', e.target.value)}
+                  value={currentConditionType}
+                  onChange={(e) => {
+                    update('conditionType', e.target.value);
+                    propagateToChildren(e.target.value, currentGradeMin);
+                  }}
                   className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2
                              border border-slate-700 focus:border-indigo-500 focus:outline-none"
                 >
@@ -634,23 +719,59 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
                   <option value="grade">Note minimale atteinte</option>
                 </select>
               </Field>
-              {data.conditionType === 'grade' && (
+
+              {currentConditionType === 'grade' && (
                 <Field label="Note minimale (%)">
                   <TextInput
-                    value={String(data.gradeMin ?? '')}
-                    onChange={(v) => update('gradeMin', v ? Number(v) : undefined)}
+                    value={String(currentGradeMin ?? '')}
+                    onChange={(v) => {
+                      const n = v ? Number(v) : undefined;
+                      update('gradeMin', n);
+                      propagateToChildren('grade', n);
+                    }}
                     placeholder="ex. 50"
                   />
                 </Field>
               )}
+
+              {/* Branch status indicators */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className={`rounded-xl px-3 py-2 text-center text-xs font-semibold
+                  ${hasTrueChild ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' : 'bg-slate-800 text-slate-500 border border-slate-700'}`}>
+                  OUI → {hasTrueChild ? 'définie' : 'vide'}
+                </div>
+                <div className={`rounded-xl px-3 py-2 text-center text-xs font-semibold
+                  ${hasFalseChild ? 'bg-red-500/15 text-red-400 border border-red-500/20' : 'bg-slate-800 text-slate-500 border border-slate-700'}`}>
+                  NON ↓ {hasFalseChild ? 'définie' : 'vide'}
+                </div>
+              </div>
+
+              {/* Semantic info box */}
               <div className="bg-slate-800/60 rounded-xl p-3 space-y-1.5 text-xs text-slate-400">
                 <p className="font-semibold text-slate-300 flex items-center gap-1.5">🔀 Parcours conditionnel</p>
-                <p>
-                  Branche <span className="text-emerald-400 font-semibold">OUI →</span> si la condition est remplie.
-                  Branche <span className="text-red-400 font-semibold">NON ↓</span> sinon.
-                </p>
-                <p className="text-slate-500">Clic droit sur ce nœud pour ajouter des ressources/activités sur chaque branche.</p>
+                {currentConditionType === 'completion' ? (
+                  <>
+                    <p>
+                      <span className="text-emerald-400 font-semibold">OUI →</span> activité complétée.
+                    </p>
+                    <p>
+                      <span className="text-red-400 font-semibold">NON ↓</span> activité non complétée.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p>
+                      <span className="text-emerald-400 font-semibold">OUI →</span>{' '}
+                      note {currentGradeMin !== undefined ? `≥ ${currentGradeMin} %` : '≥ seuil défini'}.
+                    </p>
+                    <p>
+                      <span className="text-red-400 font-semibold">NON ↓</span>{' '}
+                      note {currentGradeMin !== undefined ? `< ${currentGradeMin} %` : '< seuil défini'}.
+                    </p>
+                  </>
+                )}
               </div>
+
               <button
                 onClick={handleDelete}
                 className="w-full mt-2 py-2 rounded-xl text-xs font-semibold text-red-400 border border-red-500/20
@@ -1110,9 +1231,13 @@ export function PropertiesPanel({ nodeId }: PropertiesPanelProps) {
             />
           </>
         )}
-        {/* Completion & Restrictions — resource and activity nodes only */}
+        {/* Completion & Restrictions — resource and activity nodes */}
         {(node.type === 'resource' || node.type === 'activity') && (
           <CompletionPanel data={data} update={update} nodes={nodes} nodeId={nodeId} />
+        )}
+        {/* Restrictions d'accès — section nodes (no completion tracking) */}
+        {node.type === 'section' && (
+          <CompletionPanel data={data} update={update} nodes={nodes} nodeId={nodeId} showCompletion={false} />
         )}
       </div>
 

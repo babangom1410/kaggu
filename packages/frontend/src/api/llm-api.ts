@@ -115,6 +115,25 @@ export async function generateBook(
   return ((await res.json()) as { data: unknown[] }).data;
 }
 
+export interface ScenarizationFile {
+  name: string;
+  type: 'pdf' | 'markdown' | 'text';
+  content: string; // base64 for pdf, plain text for others
+}
+
+export interface ScenarizationParams {
+  files: ScenarizationFile[];
+  level: string;
+  duration: string;
+  moduleCount: number;
+  language: string;
+  additionalContext?: string;
+}
+
+export function scenarizeCourse(params: ScenarizationParams, onEvent: SSECallback, signal?: AbortSignal) {
+  return streamPost('/api/v1/llm/scenarize', params, onEvent, signal);
+}
+
 export async function generateFeedback(
   feedbackName: string,
   prompt: string,

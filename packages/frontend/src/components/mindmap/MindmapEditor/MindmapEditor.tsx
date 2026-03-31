@@ -202,12 +202,21 @@ export function MindmapEditor() {
         const refNodeId = refEdge?.source;
 
         if (refNodeId) {
-          const restriction: Restriction = {
-            type: 'completion',
-            nodeId: refNodeId,
-            expected: sourceHandle === 'source-true' ? 1 : 0,
-          };
+          const branchData = parentNode.data as unknown as Record<string, unknown>;
+          const conditionType = String(branchData.conditionType ?? 'completion');
+          const isTrue = sourceHandle === 'source-true';
           const existing = data as unknown as Record<string, unknown>;
+
+          let restriction: Restriction;
+          if (conditionType === 'grade') {
+            const gradeMin = branchData.gradeMin as number | undefined;
+            restriction = isTrue
+              ? { type: 'grade', nodeId: refNodeId, min: gradeMin }
+              : { type: 'grade', nodeId: refNodeId, max: gradeMin };
+          } else {
+            restriction = { type: 'completion', nodeId: refNodeId, expected: isTrue ? 1 : 0 };
+          }
+
           nodeData = {
             ...data,
             restrictions: [...((existing.restrictions ?? []) as Restriction[]), restriction],
@@ -215,9 +224,27 @@ export function MindmapEditor() {
         }
       }
 
-      const childCount = edges.filter((e) => e.source === parentId && (!sourceHandle || e.sourceHandle === sourceHandle)).length;
-      const xOffset = sourceHandle === 'source-true' ? 260 : (childCount - 1) * 220;
-      const yOffset = sourceHandle === 'source-false' ? 160 : 200;
+      // Positioning relative to parent
+      // source-true (OUI) → to the right of the branch node
+      // source-false (NON) → directly below the branch node
+      // branch creation → directly below the reference activity
+      // other (section children) → spread horizontally
+      let xOffset: number;
+      let yOffset: number;
+      if (sourceHandle === 'source-true') {
+        xOffset = 260;
+        yOffset = 0;
+      } else if (sourceHandle === 'source-false') {
+        xOffset = 0;
+        yOffset = 180;
+      } else if (type === 'branch') {
+        xOffset = 0;
+        yOffset = 200;
+      } else {
+        const childCount = edges.filter((e) => e.source === parentId).length;
+        xOffset = (childCount - 1) * 220;
+        yOffset = 200;
+      }
 
       addNode(
         {

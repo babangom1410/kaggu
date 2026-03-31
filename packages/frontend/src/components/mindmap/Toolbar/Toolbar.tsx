@@ -6,6 +6,7 @@ import type { SyncStatus } from '@/stores/mindmap-store';
 import { ExportModal } from '@/components/mindmap/ExportModal';
 import { ImportModal } from '@/components/mindmap/ImportModal/ImportModal';
 import { CourseStructureWizard } from '@/components/mindmap/AiAssistant';
+import { ScenarizationModal } from '@/components/mindmap/ScenarizationModal';
 import { analyzeMindmap } from '@/api/llm-api';
 
 // ─── Analyze Modal ────────────────────────────────────────────────────────────
@@ -224,6 +225,7 @@ export function Toolbar() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const [wizardOpen, setWizardOpen] = useState(false);
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
+  const [scenarizationOpen, setScenarizationOpen] = useState(false);
 
   const isMoodleConnected = !!(moodleConfig?.url && moodleConfig?.token);
 
@@ -324,6 +326,17 @@ export function Toolbar() {
         title="Générer une structure de cours avec l'IA"
       >
         ✨ Assistant
+      </button>
+
+      {/* AI Scénarisation */}
+      <button
+        onClick={() => setScenarizationOpen(true)}
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
+                   bg-amber-500/15 text-amber-400 border border-amber-500/20
+                   hover:bg-amber-500/25 hover:text-amber-300 transition-all duration-150"
+        title="Générer un cours complet à partir de fichiers (PDF, Markdown)"
+      >
+        🎓 Scénariser
       </button>
 
       {/* AI Analyze */}
@@ -464,6 +477,9 @@ export function Toolbar() {
 
       {/* AI Course Structure Wizard */}
       {wizardOpen && <CourseStructureWizard onClose={() => setWizardOpen(false)} />}
+
+      {/* AI Scénarisation Modal */}
+      {scenarizationOpen && <ScenarizationModal onClose={() => setScenarizationOpen(false)} />}
 
       {/* AI Analyze Modal */}
       {analyzeOpen && (
