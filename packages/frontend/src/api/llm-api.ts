@@ -32,6 +32,7 @@ async function streamPost(path: string, body: unknown, onEvent: SSECallback, sig
 
   const decoder = new TextDecoder();
   let buffer = '';
+  let receivedDone = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -48,13 +49,21 @@ async function streamPost(path: string, body: unknown, onEvent: SSECallback, sig
       } else if (line.startsWith('data: ')) {
         try {
           const data = JSON.parse(line.slice(6));
+          if (currentEvent === 'done') receivedDone = true;
+          if (currentEvent === 'error') receivedDone = true; // error counts as terminal
           onEvent(currentEvent, data);
         } catch {
           // skip malformed line
         }
         currentEvent = 'message';
       }
+      // ignore SSE comment lines (": keep-alive")
     }
+  }
+
+  // Stream ended without a done/error event → connection was dropped by proxy
+  if (!receivedDone) {
+    onEvent('error', { message: 'Connexion interrompue. Le serveur a mis trop de temps à répondre. Réessaie avec moins de modules.' });
   }
 }
 

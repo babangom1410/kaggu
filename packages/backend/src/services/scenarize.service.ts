@@ -184,6 +184,13 @@ function injectQuizIds(questions: unknown[]): unknown[] {
   }));
 }
 
+/** Send SSE comment (keep-alive ping) to prevent proxy timeouts */
+function startHeartbeat(res: Response, intervalMs = 20_000): ReturnType<typeof setInterval> {
+  return setInterval(() => {
+    try { res.write(': keep-alive\n\n'); } catch { /* connection already closed */ }
+  }, intervalMs);
+}
+
 /** Run tasks with a max concurrency limit, calling onDone after each */
 async function withConcurrency<T>(
   tasks: (() => Promise<T>)[],
@@ -676,6 +683,7 @@ export async function scenarizeCourse(
     }
 
     let doneCount = 0;
+    const heartbeat = startHeartbeat(res);
 
     const contentTaskFns = tasks.map((task) => async () => {
       const node = getEnrichedNode(task);
@@ -702,6 +710,7 @@ export async function scenarizeCourse(
     });
 
     await withConcurrency(contentTaskFns, CONCURRENCY);
+    clearInterval(heartbeat);
 
     // ── PHASE 3: convert to mindmap ───────────────────────────────────────────
 
