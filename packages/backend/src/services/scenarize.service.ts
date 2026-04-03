@@ -250,10 +250,12 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
 
 /**
  * Use Sonnet to read PDFs and produce a dense text extract.
+ * Streams delta events to res so the proxy sees real SSE data (not just heartbeat comments).
  * Opus then receives clean text (no PDF overhead) and starts structuring immediately.
  */
 async function extractDocumentContent(
   client: Anthropic,
+  res: Response,
   files: ScenarizationFile[],
   moduleCount: number,
   language: string,
@@ -305,6 +307,8 @@ Langue : ${language}`,
   for await (const event of stream) {
     if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
       extracted += event.delta.text;
+      // Stream extraction tokens to the client — keeps the proxy alive with real SSE data
+      sendSSE(res, 'delta', { text: event.delta.text });
     }
   }
   return extracted;
@@ -630,6 +634,7 @@ export async function scenarizeCourseStructure(
 
       documentExtract = await extractDocumentContent(
         client,
+        res,
         params.files,
         params.moduleCount,
         params.language,

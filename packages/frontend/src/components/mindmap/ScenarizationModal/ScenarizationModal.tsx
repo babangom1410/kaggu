@@ -205,7 +205,7 @@ function ProgressView({
       {/* Stream preview */}
       {streamText && (
         <div className="bg-slate-800/80 rounded-lg p-3 max-h-32 overflow-y-auto">
-          <div className="text-xs text-slate-500 mb-1">Structure en cours…</div>
+          <div className="text-xs text-slate-500 mb-1">{statusMessage || 'En cours…'}</div>
           <div className="text-xs text-slate-400 font-mono whitespace-pre-wrap leading-relaxed">
             {streamText.slice(-600)}
             <span className="inline-block w-1.5 h-3 bg-indigo-400 animate-pulse ml-0.5" />
@@ -410,8 +410,14 @@ export function ScenarizationModal({ onClose }: Props) {
         (event, data) => {
           const d = data as Record<string, unknown>;
           if (event === 'progress') {
-            setCurrentProgressStep((d.step as string) ?? 'structure');
-            setStatusMessage((d.message as string) ?? '');
+            const newStep = (d.step as string) ?? 'structure';
+            const newMsg = (d.message as string) ?? '';
+            setCurrentProgressStep(newStep);
+            setStatusMessage(newMsg);
+            // Clear stream preview when moving to a new phase (extraction → structure)
+            if (newMsg.includes('Opus') || newMsg.includes('Structuration')) {
+              setStreamText('');
+            }
           } else if (event === 'delta') {
             setStreamText((prev) => prev + ((d.text as string) ?? ''));
           } else if (event === 'done') {
