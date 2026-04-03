@@ -2,8 +2,8 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Response } from 'express';
 import { initSSE, sendSSE } from './llm.service';
 
-// Phase 1: Opus for best PDF understanding + pedagogical structure quality (1 call only)
-const MODEL_STRUCTURE = 'claude-opus-4-6';
+// Phase 1: Sonnet for structure — fast (3-4x faster than Opus), reliable, handles PDFs well
+const MODEL_STRUCTURE = 'claude-sonnet-4-6';
 // Phase 2: Sonnet for content generation — fast, parallel, cost-effective
 const MODEL_CONTENT = 'claude-sonnet-4-6';
 // Step 1: structure (Opus) — 16k is sufficient (5-10 modules JSON ≈ 5-8k tokens)
@@ -192,10 +192,13 @@ function injectQuizIds(questions: unknown[]): unknown[] {
 }
 
 /** Send SSE comment (keep-alive ping) to prevent proxy timeouts */
-function startHeartbeat(res: Response, intervalMs = 15_000): ReturnType<typeof setInterval> {
+function startHeartbeat(res: Response, intervalMs = 5_000): ReturnType<typeof setInterval> {
   return setInterval(() => {
     try {
       res.write(': keep-alive\n\n');
+      // Force TCP flush — disable Nagle buffering on the underlying socket
+      const socket = (res as unknown as { socket?: { setNoDelay?: (v: boolean) => void; write?: (d: string) => void } }).socket;
+      socket?.setNoDelay?.(true);
       (res as unknown as { flush?: () => void }).flush?.();
     } catch { /* connection already closed */ }
   }, intervalMs);

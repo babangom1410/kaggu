@@ -20,6 +20,9 @@ export function initSSE(res: Response): void {
   res.setHeader('Connection', 'keep-alive');
   // Disable buffering on nginx/Caddy/other proxies — critical for SSE
   res.setHeader('X-Accel-Buffering', 'no');
+  // Disable TCP Nagle buffering so small writes (heartbeats) are sent immediately
+  const socket = (res as unknown as { socket?: { setNoDelay?: (v: boolean) => void } }).socket;
+  socket?.setNoDelay?.(true);
   res.flushHeaders();
 }
 
