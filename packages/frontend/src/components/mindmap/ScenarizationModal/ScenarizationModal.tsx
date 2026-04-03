@@ -151,7 +151,7 @@ function FileDropZone({
 // ─── Progress step ────────────────────────────────────────────────────────────
 
 const PROGRESS_STEPS = [
-  { key: 'structure',  label: 'Structure' },
+  { key: 'structure',  label: 'Analyse & Structure' },
   { key: 'converting', label: 'Mindmap' },
 ];
 

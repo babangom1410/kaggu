@@ -2,11 +2,15 @@ import Anthropic from '@anthropic-ai/sdk';
 import type { Response } from 'express';
 import { initSSE, sendSSE } from './llm.service';
 
-// Phase 1: Sonnet for structure — fast (3-4x faster than Opus), reliable, handles PDFs well
-const MODEL_STRUCTURE = 'claude-sonnet-4-6';
+// Step 1a: Sonnet reads PDFs → produces a text extract (fast, no PDF-processing overhead for Opus)
+const MODEL_EXTRACTION = 'claude-sonnet-4-6';
+// Step 1b: Opus takes the text extract → generates the full JSON course structure (best quality)
+const MODEL_STRUCTURE = 'claude-opus-4-6';
 // Phase 2: Sonnet for content generation — fast, parallel, cost-effective
 const MODEL_CONTENT = 'claude-sonnet-4-6';
-// Step 1: structure (Opus) — 16k is sufficient (5-10 modules JSON ≈ 5-8k tokens)
+// Max tokens for the document extraction step (Sonnet) — ~2000-word text summary
+const MAX_TOKENS_EXTRACTION = 4_000;
+// Max tokens for structure generation (Opus) — JSON for 4-8 modules ≈ 5-8k tokens
 // Note: Anthropic SDK requires streaming for max_tokens > ~21k on non-streaming calls
 const MAX_TOKENS_STRUCTURE = 16_000;
 // Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
@@ -242,7 +246,71 @@ function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise
   ]);
 }
 
-// ─── Step 1: structure-only prompt ────────────────────────────────────────────
+// ─── Step 1a: PDF extraction (Sonnet) ─────────────────────────────────────────
+
+/**
+ * Use Sonnet to read PDFs and produce a dense text extract.
+ * Opus then receives clean text (no PDF overhead) and starts structuring immediately.
+ */
+async function extractDocumentContent(
+  client: Anthropic,
+  files: ScenarizationFile[],
+  moduleCount: number,
+  language: string,
+): Promise<string> {
+  const docParts: Array<{
+    type: 'document';
+    source: { type: 'base64'; media_type: 'application/pdf'; data: string };
+    title?: string;
+  }> = [];
+  const textParts: string[] = [];
+
+  for (const file of files) {
+    if (file.type === 'pdf') {
+      docParts.push({
+        type: 'document',
+        source: { type: 'base64', media_type: 'application/pdf', data: file.content },
+        title: file.name,
+      });
+    } else {
+      textParts.push(`## ${file.name}\n\n${file.content.slice(0, MAX_TEXT_FILE_CHARS)}`);
+    }
+  }
+
+  const userContent: unknown[] = [
+    ...docParts,
+    ...(textParts.length > 0 ? [{ type: 'text', text: textParts.join('\n\n---\n\n') }] : []),
+    {
+      type: 'text',
+      text: `Analyse ces documents et extrait leur contenu pédagogique clé.
+Organise l'extrait en ${moduleCount} thèmes principaux correspondant aux modules de formation.
+Pour chaque thème, inclus :
+- Les concepts et définitions essentiels
+- Les points d'apprentissage importants
+- Les exemples, cas pratiques ou données notables
+- Les compétences visées
+
+Retourne un texte structuré et dense (environ 1500-2000 mots au total).
+Langue : ${language}`,
+    },
+  ];
+
+  const stream = client.messages.stream({
+    model: MODEL_EXTRACTION,
+    max_tokens: MAX_TOKENS_EXTRACTION,
+    messages: [{ role: 'user', content: userContent as Anthropic.ContentBlockParam[] }],
+  });
+
+  let extracted = '';
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      extracted += event.delta.text;
+    }
+  }
+  return extracted;
+}
+
+// ─── Step 1b: structure generation prompt (Opus) ──────────────────────────────
 
 function buildStructurePrompt(params: ScenarizationParams): string {
   return `Tu es un ingénieur pédagogique expert qui scénarise des formations Moodle.
@@ -539,7 +607,7 @@ function scenarizationToMindmap(
 
 // ─── Main exports ─────────────────────────────────────────────────────────────
 
-/** Phase 1: PDF analysis → structure skeleton → mindmap nodes/edges with empty content */
+/** Phase 1: PDF extraction (Sonnet) → structure generation (Opus) → mindmap skeleton */
 export async function scenarizeCourseStructure(
   params: ScenarizationParams,
   res: Response,
@@ -547,63 +615,55 @@ export async function scenarizeCourseStructure(
   const client = getClient();
   initSSE(res);
 
-  // Start heartbeat immediately — keeps proxy alive during Phase 1 (Opus, 30-60s)
   const heartbeat = startHeartbeat(res);
 
   try {
-    // ── PHASE 1: generate structure skeleton ──────────────────────────────────
+    const hasPdf = params.files.some((f) => f.type === 'pdf');
+    const hasTextFiles = params.files.some((f) => f.type !== 'pdf');
+    const hasFiles = params.files.length > 0;
 
-    sendSSE(res, 'progress', { step: 'structure', message: 'Analyse des fichiers et structuration du cours…' });
+    let documentExtract = '';
 
-    const docParts: Array<{
-      type: 'document';
-      source: { type: 'base64'; media_type: 'application/pdf'; data: string };
-      title?: string;
-    }> = [];
-    const textParts: string[] = [];
-    let hasPdf = false;
+    // ── STEP 1a: Sonnet reads PDFs and text files → dense text extract ────────
+    if (hasPdf) {
+      sendSSE(res, 'progress', { step: 'structure', message: 'Lecture des documents (Sonnet)…' });
 
-    for (const file of params.files) {
-      if (file.type === 'pdf') {
-        hasPdf = true;
-        docParts.push({
-          type: 'document',
-          source: { type: 'base64', media_type: 'application/pdf', data: file.content },
-          title: file.name,
-        });
-      } else {
-        textParts.push(`## ${file.name}\n\n${file.content.slice(0, MAX_TEXT_FILE_CHARS)}`);
-      }
+      documentExtract = await extractDocumentContent(
+        client,
+        params.files,
+        params.moduleCount,
+        params.language,
+      );
+
+      sendSSE(res, 'progress', { step: 'structure', message: 'Structuration du cours (Opus)…' });
+    } else if (hasTextFiles) {
+      // Text/markdown files: inject directly without extraction step
+      documentExtract = params.files
+        .map((f) => `## ${f.name}\n\n${f.content.slice(0, MAX_TEXT_FILE_CHARS)}`)
+        .join('\n\n---\n\n');
+      sendSSE(res, 'progress', { step: 'structure', message: 'Structuration du cours (Opus)…' });
+    } else {
+      sendSSE(res, 'progress', { step: 'structure', message: 'Génération de la structure (Opus)…' });
     }
+
+    // ── STEP 1b: Opus generates the JSON structure from text extract ──────────
 
     const structureSystemPrompt = buildStructurePrompt(params);
     const userText = [
-      params.files.length > 0
-        ? 'Analyse les fichiers ci-dessous et génère la structure du cours :'
+      hasFiles
+        ? 'Génère la structure du cours à partir du contenu suivant :\n\n' + documentExtract
         : 'Génère la structure du cours basée sur les paramètres.',
-      textParts.join('\n\n---\n\n'),
       '\nRetourne le JSON de structure maintenant.',
-    ].filter(Boolean).join('\n\n');
-
-    const userContent: unknown[] = [
-      ...docParts,
-      { type: 'text', text: userText },
-    ];
+    ].join('\n\n');
 
     let structureText = '';
-
-    // Claude 4 models support PDFs natively — no beta flag needed
-    // Use streaming for both PDF and text-only cases (unified path)
-    if (hasPdf) {
-      sendSSE(res, 'progress', { step: 'structure', message: 'Lecture des PDFs en cours (20-40 s)…' });
-    }
 
     {
       const stream = client.messages.stream({
         model: MODEL_STRUCTURE,
         max_tokens: MAX_TOKENS_STRUCTURE,
         system: structureSystemPrompt,
-        messages: [{ role: 'user', content: userContent as Anthropic.ContentBlockParam[] }],
+        messages: [{ role: 'user', content: userText }],
       });
 
       for await (const event of stream) {
