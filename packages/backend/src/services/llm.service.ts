@@ -18,18 +18,17 @@ export function initSSE(res: Response): void {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  // Disable buffering on nginx/Caddy/other proxies — critical for SSE
   res.setHeader('X-Accel-Buffering', 'no');
-  // Disable TCP Nagle buffering so small writes (heartbeats) are sent immediately
-  const socket = (res as unknown as { socket?: { setNoDelay?: (v: boolean) => void } }).socket;
+  // Disable TCP Nagle + enable TCP keepalive so the socket stays alive through proxies
+  const socket = (res as unknown as { socket?: { setNoDelay?: (v: boolean) => void; setKeepAlive?: (enable: boolean, delay: number) => void; setTimeout?: (ms: number) => void } }).socket;
   socket?.setNoDelay?.(true);
+  socket?.setKeepAlive?.(true, 10_000);
+  socket?.setTimeout?.(0); // disable socket-level idle timeout
   res.flushHeaders();
 }
 
 export function sendSSE(res: Response, event: string, data: unknown): void {
   res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  // Force flush to network so proxies (Caddy/nginx) see activity and don't drop the connection
-  (res as unknown as { flush?: () => void }).flush?.();
 }
 
 // ─── System prompts ───────────────────────────────────────────────────────────

@@ -51,7 +51,7 @@ async function streamPost(path: string, body: unknown, onEvent: SSECallback, sig
           const data = JSON.parse(line.slice(6));
           if (currentEvent === 'done') receivedDone = true;
           if (currentEvent === 'error') receivedDone = true; // error counts as terminal
-          onEvent(currentEvent, data);
+          if (currentEvent !== 'keepalive') onEvent(currentEvent, data); // ignore heartbeat events
         } catch {
           // skip malformed line
         }

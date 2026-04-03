@@ -219,6 +219,8 @@ router.post(
   '/scenarize/structure',
   express.json({ limit: '20mb' }),
   async (req, res) => {
+    // Disable socket timeout — this SSE route can take 20-40s
+    req.socket.setTimeout(0);
     const MAX_PDF_BASE64_CHARS = 8 * 1024 * 1024;
     const fileSchema = z.object({
       name:    z.string().min(1),
@@ -250,6 +252,7 @@ router.post(
   '/scenarize/content',
   express.json({ limit: '1mb' }),
   async (req, res) => {
+    req.socket.setTimeout(0);
     const taskSchema = z.object({
       nodeId:       z.string().min(1),
       subtype:      z.enum(['page', 'quiz']),

@@ -16,7 +16,8 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:5173' }));
-app.use(express.json({ limit: '5mb' }));
+// 20mb global limit — scenarize routes receive base64-encoded PDFs
+app.use(express.json({ limit: '20mb' }));
 
 // Health check
 app.get('/api/v1/health', (_req, res) => {
@@ -40,6 +41,11 @@ app.use('/api/v1/admin/plans',         adminAuthMiddleware, adminPlansRouter);
 app.use('/api/v1/admin/subscriptions', adminAuthMiddleware, adminSubscriptionsRouter);
 app.use('/api/v1/admin/usage',         adminAuthMiddleware, adminUsageRouter);
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`[backend] Server running on http://localhost:${PORT}`);
 });
+
+// Disable all server-level timeouts — SSE routes keep connections open for 30-120s
+server.setTimeout(0);
+server.requestTimeout = 0;
+server.headersTimeout = 65_000;
