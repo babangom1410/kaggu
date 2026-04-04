@@ -541,6 +541,8 @@ export async function scenarizeCourseStructure(
   params: ScenarizationParams,
   res: Response,
 ): Promise<void> {
+  const t0 = Date.now();
+  const elapsed = () => `+${((Date.now() - t0) / 1000).toFixed(1)}s`;
   const client = getClient();
   initSSE(res);
 
@@ -548,6 +550,7 @@ export async function scenarizeCourseStructure(
 
   try {
     const hasFiles = params.files.length > 0;
+    console.log(`[scenarize:structure] START hasFiles=${hasFiles} files=${params.files.map(f => `${f.name}(${Math.round(f.content.length / 1000)}KB)`).join(',') || 'none'}`);
 
     sendSSE(res, 'progress', {
       step: 'structure',
@@ -577,8 +580,10 @@ export async function scenarizeCourseStructure(
     });
 
     let structureText = '';
+    let firstDelta = true;
 
     {
+      console.log(`[scenarize:structure] ${elapsed()} calling Anthropic API…`);
       const stream = client.messages.stream({
         model: MODEL_STRUCTURE,
         max_tokens: MAX_TOKENS_STRUCTURE,
@@ -588,10 +593,16 @@ export async function scenarizeCourseStructure(
 
       for await (const event of stream) {
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+          if (firstDelta) {
+            console.log(`[scenarize:structure] ${elapsed()} first delta received`);
+            firstDelta = false;
+          }
           structureText += event.delta.text;
           sendSSE(res, 'delta', { text: event.delta.text });
         }
       }
+
+      console.log(`[scenarize:structure] ${elapsed()} stream complete — ${structureText.length} chars`);
 
       const finalMsg = await stream.finalMessage();
       if (finalMsg.stop_reason === 'max_tokens') {
@@ -657,13 +668,18 @@ export async function scenarizeCourseStructure(
     sendSSE(res, 'progress', { step: 'converting', message: 'Conversion en mindmap…' });
 
     const { nodes, edges, meta } = scenarizationToMindmap(skeleton, sectionContexts);
+    const donePayload = JSON.stringify({ nodes, edges, meta });
+    console.log(`[scenarize:structure] ${elapsed()} sending done event — payload ${Math.round(donePayload.length / 1000)}KB`);
     sendSSE(res, 'done', { nodes, edges, meta });
+    console.log(`[scenarize:structure] ${elapsed()} done event sent — res.writableEnded=${res.writableEnded}`);
 
   } catch (err) {
+    console.error(`[scenarize:structure] ${elapsed()} ERROR:`, (err as Error).message);
     sendSSE(res, 'error', { message: (err as Error).message });
   } finally {
     clearInterval(heartbeat);
     res.end();
+    console.log(`[scenarize:structure] ${elapsed()} res.end() called`);
   }
 }
 
