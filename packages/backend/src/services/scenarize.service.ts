@@ -7,8 +7,8 @@ import { initSSE, sendSSE } from './llm.service';
 const MODEL_STRUCTURE = 'claude-sonnet-4-6';
 // Phase 2: Sonnet for content generation — fast, parallel, cost-effective
 const MODEL_CONTENT = 'claude-sonnet-4-6';
-// Structure JSON for 4-8 modules ≈ 4-7k tokens — 8k is plenty and keeps generation fast
-const MAX_TOKENS_STRUCTURE = 8_000;
+// Structure JSON for 4-8 modules ≈ 2-3k tokens with concise descriptions
+const MAX_TOKENS_STRUCTURE = 4_000;
 // Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
 const MAX_TOKENS_CONTENT = 8_192;
 // Max concurrent content-generation calls
@@ -73,8 +73,7 @@ type ScenSkeletonItem = ScenNodeSkeleton | ScenBranchSkeleton;
 interface ScenSectionSkeleton {
   name: string;
   summary: string;
-  objectives: string[];
-  contentContext: string; // 150-word extract of PDF content for this section
+  contentContext: string; // short keyword list for this section
   nodes: ScenSkeletonItem[];
 }
 
@@ -250,33 +249,32 @@ PARAMÈTRES :
 - Langue : ${params.language}
 ${params.additionalContext ? `- Instructions : ${params.additionalContext}` : ''}
 
-Retourne UNIQUEMENT un JSON valide, sans texte, sans markdown, avec cette structure :
+Retourne UNIQUEMENT un JSON valide, sans texte, sans markdown. Sois TRÈS concis — max 3500 tokens au total.
 
 {
   "courseName": "Titre complet",
   "shortname": "CODE10",
-  "summary": "<p>2 phrases de description.</p>",
-  "outcomes": ["Résultat 1", "Résultat 2", "Résultat 3"],
-  "competencies": ["Compétence 1", "Compétence 2"],
+  "summary": "<p>1 phrase.</p>",
+  "outcomes": ["Résultat 1", "Résultat 2"],
+  "competencies": ["Compétence 1"],
   "sections": [
     {
       "name": "Module 1 : Titre",
-      "summary": "1 phrase résumé.",
-      "objectives": ["Objectif 1", "Objectif 2"],
-      "contentContext": "Résumé en 80 mots max du contenu des fichiers pour ce module : concepts clés, points essentiels. Servira à générer le contenu détaillé.",
+      "summary": "1 phrase.",
+      "contentContext": "mot-clé1, mot-clé2, mot-clé3, mot-clé4, mot-clé5",
       "nodes": [
         {
           "type": "resource",
           "subtype": "page",
-          "name": "Titre de la page",
-          "description": "1 phrase décrivant ce que couvre cette page.",
+          "name": "Titre",
+          "description": "1 phrase.",
           "completion": 1
         },
         {
           "type": "activity",
           "subtype": "quiz",
           "name": "Quiz : Titre",
-          "description": "1 phrase sur ce qui est évalué.",
+          "description": "1 phrase.",
           "questionCount": 4,
           "completion": 2
         },
@@ -284,7 +282,7 @@ Retourne UNIQUEMENT un JSON valide, sans texte, sans markdown, avec cette struct
           "type": "activity",
           "subtype": "assign",
           "name": "Devoir : Titre",
-          "description": "Énoncé complet du devoir en 3 phrases : contexte, tâche demandée, livrable attendu.",
+          "description": "2 phrases max : tâche + livrable.",
           "maxgrade": 20,
           "submissiontype": "online_text",
           "completion": 2
@@ -293,7 +291,7 @@ Retourne UNIQUEMENT un JSON valide, sans texte, sans markdown, avec cette struct
           "type": "activity",
           "subtype": "forum",
           "name": "Discussion : Titre",
-          "description": "Question de discussion en 2 phrases avec le contexte pédagogique.",
+          "description": "1 phrase.",
           "completion": 1
         }
       ]
@@ -303,14 +301,13 @@ Retourne UNIQUEMENT un JSON valide, sans texte, sans markdown, avec cette struct
 
 RÈGLES STRICTES :
 - "shortname" : max 10 caractères, MAJUSCULES, sans espaces
-- Nodes "page" et "quiz" : description courte (1 phrase) — le contenu sera généré séparément
-- Nodes "assign" et "forum" : description complète (3-5 phrases) — elle sera utilisée directement
-- "questionCount" : entre 3 et ${MAX_QUESTIONS_PER_QUIZ} pour les quiz — JAMAIS plus
+- "contentContext" : 5-8 mots-clés séparés par virgules (pas de phrases)
+- Toutes les descriptions : max 2 phrases, max 30 mots chacune
+- "questionCount" : entre 3 et ${MAX_QUESTIONS_PER_QUIZ} — JAMAIS plus
 - Pas de champ "content" ni "questions" dans cette étape
-- "contentContext" : résumé fidèle du contenu PDF de ce module (si fichiers fournis) ou contenu synthétisé
-- Respecte EXACTEMENT ${params.moduleCount} sections
-- Activités disponibles : quiz, assign, forum | Ressources : page, url
-- BranchNode uniquement si explicitement demandé dans les instructions`;
+- Exactement ${params.moduleCount} sections
+- Activités : quiz, assign, forum | Ressources : page, url
+- BranchNode uniquement si explicitement demandé`;
 }
 
 // ─── Step 2: content generation helpers ───────────────────────────────────────
@@ -639,7 +636,6 @@ export async function scenarizeCourseStructure(
       sections: structure.sections.map((s) => ({
         name: s.name,
         summary: s.summary,
-        objectives: s.objectives,
         nodes: s.nodes.map((item) => {
           if (item.type === 'branch') {
             return {

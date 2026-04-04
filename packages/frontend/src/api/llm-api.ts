@@ -34,10 +34,18 @@ async function streamPost(path: string, body: unknown, onEvent: SSECallback, sig
   let buffer = '';
   let receivedDone = false;
   let currentEvent = 'message'; // must persist across read() calls — event: and data: lines may arrive in different chunks
+  const t0 = Date.now();
+  let readCount = 0;
+  let lastEventAt = 0;
 
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    readCount++;
+    const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+    if (done) {
+      console.log(`[sse] stream ended after ${elapsed}s — reads=${readCount} receivedDone=${receivedDone} bufferLen=${buffer.length}`);
+      break;
+    }
 
     buffer += decoder.decode(value, { stream: true });
     const lines = buffer.split('\n');
@@ -46,14 +54,21 @@ async function streamPost(path: string, body: unknown, onEvent: SSECallback, sig
     for (const line of lines) {
       if (line.startsWith('event: ')) {
         currentEvent = line.slice(7).trim();
+        if (currentEvent !== 'keepalive') {
+          lastEventAt = Date.now() - t0;
+          console.log(`[sse] +${(lastEventAt/1000).toFixed(1)}s event="${currentEvent}"`);
+        }
       } else if (line.startsWith('data: ')) {
         try {
           const data = JSON.parse(line.slice(6));
-          if (currentEvent === 'done') receivedDone = true;
+          if (currentEvent === 'done') {
+            receivedDone = true;
+            console.log(`[sse] +${elapsed}s DONE parsed — nodes=${Array.isArray((data as Record<string,unknown>).nodes) ? ((data as Record<string,unknown>).nodes as unknown[]).length : '?'}`);
+          }
           if (currentEvent === 'error') receivedDone = true; // error counts as terminal
           if (currentEvent !== 'keepalive') onEvent(currentEvent, data); // ignore heartbeat events
-        } catch {
-          // skip malformed line
+        } catch (parseErr) {
+          console.warn(`[sse] +${elapsed}s JSON parse error for event="${currentEvent}" lineLen=${line.length}:`, parseErr);
         }
         currentEvent = 'message';
       }
