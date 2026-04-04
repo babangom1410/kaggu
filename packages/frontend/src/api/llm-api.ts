@@ -33,6 +33,7 @@ async function streamPost(path: string, body: unknown, onEvent: SSECallback, sig
   const decoder = new TextDecoder();
   let buffer = '';
   let receivedDone = false;
+  let currentEvent = 'message'; // must persist across read() calls — event: and data: lines may arrive in different chunks
 
   while (true) {
     const { done, value } = await reader.read();
@@ -42,7 +43,6 @@ async function streamPost(path: string, body: unknown, onEvent: SSECallback, sig
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
 
-    let currentEvent = 'message';
     for (const line of lines) {
       if (line.startsWith('event: ')) {
         currentEvent = line.slice(7).trim();
