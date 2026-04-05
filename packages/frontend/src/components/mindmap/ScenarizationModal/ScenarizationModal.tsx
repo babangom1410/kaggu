@@ -346,7 +346,7 @@ function buildContentTasks(nodes: MindmapNode[], edges: MindmapEdge[]): ContentT
 // ─── Main component ────────────────────────────────────────────────────────
 
 export function ScenarizationModal({ onClose }: Props) {
-  const { replaceContent, setProjectName, updateNode } = useMindmapStore();
+  const { replaceContent, setProjectName, updateNode, nodes: storeNodes, edges: storeEdges } = useMindmapStore();
 
   // Setup state
   const [files, setFiles] = useState<ScenarizationFile[]>([]);
@@ -481,6 +481,22 @@ export function ScenarizationModal({ onClose }: Props) {
     else if (step === 'content_generating') setStep('content_setup');
   };
 
+  // Whether content_setup was reached directly from setup (vs from applied after scénarisation)
+  const contentSetupFromSetup = useRef(false);
+
+  // Direct entry point: generate content for the current mindmap (no need to re-run scénarisation)
+  const handleContentSetupDirect = () => {
+    const tasks = buildContentTasks(storeNodes, storeEdges);
+    if (tasks.length === 0) return;
+    setContentTasks(tasks);
+    setSelectedNodeIds(new Set(tasks.map(t => t.nodeId)));
+    setContentFiles([]);
+    setContentAdditionalText('');
+    setError('');
+    contentSetupFromSetup.current = true;
+    setStep('content_setup');
+  };
+
   const handleApply = () => {
     if (!result) return;
     replaceContent(result.nodes, result.edges);
@@ -489,6 +505,7 @@ export function ScenarizationModal({ onClose }: Props) {
     setContentTasks(tasks);
     setSelectedNodeIds(new Set(tasks.map(t => t.nodeId)));
     setApplied(true);
+    contentSetupFromSetup.current = false;
     setStep('applied');
   };
 
@@ -556,6 +573,7 @@ export function ScenarizationModal({ onClose }: Props) {
   };
 
   const canGenerate = level.trim() && duration.trim() && moduleCount >= 1;
+  const existingContentTasks = buildContentTasks(storeNodes, storeEdges);
 
   // ── Header label ──────────────────────────────────────────────────────────
   const headerSub = {
@@ -688,6 +706,20 @@ export function ScenarizationModal({ onClose }: Props) {
               >
                 🔍 Analyser {files.length > 0 ? `(${files.length} fichier${files.length > 1 ? 's' : ''})` : 'et générer'}
               </button>
+
+              {existingContentTasks.length > 0 && (
+                <div className="border-t border-slate-700/60 pt-4 space-y-2">
+                  <p className="text-xs text-slate-500 text-center">
+                    Le mindmap actuel contient {existingContentTasks.length} nœud{existingContentTasks.length > 1 ? 's' : ''} à enrichir
+                  </p>
+                  <button
+                    onClick={handleContentSetupDirect}
+                    className="w-full py-2.5 rounded-xl border border-indigo-500/40 hover:border-indigo-400 hover:bg-indigo-500/10 text-sm text-indigo-400 hover:text-indigo-300 font-medium transition-colors flex items-center justify-center gap-2"
+                  >
+                    📝 Générer les contenus du mindmap actuel
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -839,7 +871,7 @@ export function ScenarizationModal({ onClose }: Props) {
               )}
 
               <div className="flex gap-3 pt-1">
-                <button onClick={() => { setStep('applied'); setError(''); }}
+                <button onClick={() => { setStep(contentSetupFromSetup.current ? 'setup' : 'applied'); setError(''); }}
                   className="flex-1 py-2.5 rounded-xl border border-slate-700 text-sm text-slate-400 hover:text-white transition-colors">
                   ← Retour
                 </button>
@@ -927,6 +959,7 @@ export function ScenarizationModal({ onClose }: Props) {
                   <button
                     onClick={() => {
                       setSelectedNodeIds(new Set(failedNodes.map(n => n.nodeId)));
+                      contentSetupFromSetup.current = true;
                       setStep('content_setup');
                       setError('');
                     }}
