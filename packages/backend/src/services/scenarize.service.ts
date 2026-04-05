@@ -11,10 +11,10 @@ const MODEL_CONTENT = 'claude-sonnet-4-6';
 const MAX_TOKENS_STRUCTURE = 4_000;
 // Phase A: analyze document → CourseDocument
 const MAX_TOKENS_ANALYZE = 2_500;
-// Phase B v2: per-batch token budget — 3 sections/batch ≈ 1500 tokens, well under 30s
-const MAX_TOKENS_STRUCTURE_V2 = 2_000;
-// Max sections per API call — keeps each call under 20s regardless of total module count
-const SECTIONS_PER_BATCH = 3;
+// Phase B v2: per-batch token budget — 2 sections/batch ≈ 800-1200 tokens, well under 30s
+const MAX_TOKENS_STRUCTURE_V2 = 3_000;
+// Max sections per API call — keeps each call under 25s regardless of total module count
+const SECTIONS_PER_BATCH = 2;
 // Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
 const MAX_TOKENS_CONTENT = 8_192;
 // Max concurrent content-generation calls
