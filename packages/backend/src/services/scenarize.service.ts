@@ -436,10 +436,11 @@ async function generatePageHtml(
   language: string,
   files?: ScenarizationFile[],
   additionalText?: string,
+  onDelta?: (text: string) => void,
 ): Promise<string> {
   const userContent: unknown[] = [];
 
-  if (files && files.length > 0) {
+  if (files?.length) {
     for (const file of files) {
       if (file.type === 'pdf') {
         userContent.push({
@@ -456,25 +457,28 @@ async function generatePageHtml(
   let instruction = `Page : "${name}"\nObjectif : ${description}\nContenu source :\n${context}\nLangue : ${language}`;
   if (additionalText) instruction += `\n\nInstructions supplémentaires : ${additionalText}`;
   instruction += '\n\nGénère le contenu HTML complet de cette page.';
-
   userContent.push({ type: 'text', text: instruction });
 
-  const message = await client.messages.create({
+  let html = '';
+  const stream = client.messages.stream({
     model: MODEL_CONTENT,
     max_tokens: MAX_TOKENS_CONTENT,
     system: PAGE_SYSTEM,
-    messages: [{
-      role: 'user',
-      content: userContent as Anthropic.ContentBlockParam[],
-    }],
+    messages: [{ role: 'user', content: userContent as Anthropic.ContentBlockParam[] }],
   });
-  if (message.stop_reason === 'max_tokens') {
+
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      html += event.delta.text;
+      onDelta?.(event.delta.text);
+    }
+  }
+
+  const finalMsg = await stream.finalMessage();
+  if (finalMsg.stop_reason === 'max_tokens') {
     console.warn(`[scenarize:page] "${name}" hit max_tokens — partial HTML returned`);
   }
-  return message.content
-    .filter((b) => b.type === 'text')
-    .map((b) => (b as { type: 'text'; text: string }).text)
-    .join('');
+  return html;
 }
 
 const QUIZ_SCHEMA = `[
@@ -494,10 +498,11 @@ async function generateQuizForScen(
   language: string,
   files?: ScenarizationFile[],
   additionalText?: string,
+  onDelta?: (text: string) => void,
 ): Promise<unknown[]> {
   const userContent: unknown[] = [];
 
-  if (files && files.length > 0) {
+  if (files?.length) {
     for (const file of files) {
       if (file.type === 'pdf') {
         userContent.push({
@@ -516,28 +521,28 @@ Contenu source : ${context}
 Langue : ${language}`;
   if (additionalText) instruction += `\nInstructions supplémentaires : ${additionalText}`;
   instruction += `\nGénère EXACTEMENT ${questionCount} questions variées. Retourne uniquement le tableau JSON.`;
-
   userContent.push({ type: 'text', text: instruction });
 
-  const message = await client.messages.create({
+  let raw = '';
+  const stream = client.messages.stream({
     model: MODEL_CONTENT,
     max_tokens: MAX_TOKENS_CONTENT,
     system: `Tu génères des questions de quiz Moodle en JSON strict.
 Retourne UNIQUEMENT un tableau JSON valide (pas de texte, pas de markdown).
 Types disponibles : multichoice, truefalse, shortanswer, numerical.
 Format : ${QUIZ_SCHEMA}`,
-    messages: [{
-      role: 'user',
-      content: userContent as Anthropic.ContentBlockParam[],
-    }],
+    messages: [{ role: 'user', content: userContent as Anthropic.ContentBlockParam[] }],
   });
 
-  const raw = message.content
-    .filter((b) => b.type === 'text')
-    .map((b) => (b as { type: 'text'; text: string }).text)
-    .join('');
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      raw += event.delta.text;
+      onDelta?.(event.delta.text);
+    }
+  }
 
-  if (message.stop_reason === 'max_tokens') {
+  const finalMsg = await stream.finalMessage();
+  if (finalMsg.stop_reason === 'max_tokens') {
     console.warn(`[scenarize:quiz] "${name}" hit max_tokens — JSON likely truncated`);
   }
   try {
@@ -1090,73 +1095,59 @@ export async function scenarizeCourseStructure(
 /** Backward-compatible alias */
 export const scenarizeCourse = scenarizeCourseStructure;
 
-/** Phase 2: Generate HTML + quiz questions for all page/quiz nodes with empty content */
+/** Phase 2: Generate HTML + quiz questions — sequential with streaming delta per node */
 export async function scenarizeContent(
   params: ContentGenerationParams,
   res: Response,
 ): Promise<void> {
   const client = getClient();
   initSSE(res);
-
   const heartbeat = startHeartbeat(res);
 
   try {
     const total = params.tasks.length;
+    console.log(`[scenarize:content] START ${total} tasks, files=${params.files?.length ?? 0}`);
 
-    sendSSE(res, 'progress', {
-      step: 'content',
-      message: `Génération du contenu (${total} nœuds)…`,
-      total,
-      done: 0,
-    });
+    sendSSE(res, 'progress', { step: 'content', message: `Génération du contenu (${total} nœuds)…`, total, done: 0 });
 
-    interface NodeDoneResult {
-      nodeId: string;
-      content?: string;
-      questions?: unknown[];
-    }
-
-    const results: NodeDoneResult[] = [];
-    let doneCount = 0;
-
-    const taskFns = params.tasks.map((task, taskIdx) => async () => {
+    for (let i = 0; i < params.tasks.length; i++) {
+      const task = params.tasks[i];
       const context = truncateToWords(task.contentContext || '', MAX_CONTEXT_WORDS);
-      const result: NodeDoneResult = { nodeId: task.nodeId };
 
-      if (task.subtype === 'page') {
-        const html = await withTimeout(
-          generatePageHtml(client, task.name, task.description, context, params.language, params.files, params.additionalText),
-          CONTENT_TASK_TIMEOUT_MS,
-          `page "${task.name}"`,
-        );
-        result.content = html;
-      } else if (task.subtype === 'quiz') {
-        const count = Math.min(task.questionCount ?? 5, MAX_QUESTIONS_PER_QUIZ);
-        const questions = await withTimeout(
-          generateQuizForScen(client, task.name, task.description, context, count, params.language, params.files, params.additionalText),
-          CONTENT_TASK_TIMEOUT_MS,
-          `quiz "${task.name}"`,
-        );
-        result.questions = questions;
+      console.log(`[scenarize:content] ${i + 1}/${total} "${task.name}" (${task.subtype})`);
+      sendSSE(res, 'node_start', { nodeId: task.nodeId, name: task.name, subtype: task.subtype, index: i + 1, total });
+
+      const onDelta = (text: string) => sendSSE(res, 'node_delta', { nodeId: task.nodeId, text });
+
+      let content: string | undefined;
+      let questions: unknown[] | undefined;
+
+      try {
+        if (task.subtype === 'page') {
+          content = await withTimeout(
+            generatePageHtml(client, task.name, task.description, context, params.language, params.files, params.additionalText, onDelta),
+            CONTENT_TASK_TIMEOUT_MS,
+            `page "${task.name}"`,
+          );
+        } else if (task.subtype === 'quiz') {
+          const count = Math.min(task.questionCount ?? 5, MAX_QUESTIONS_PER_QUIZ);
+          questions = await withTimeout(
+            generateQuizForScen(client, task.name, task.description, context, count, params.language, params.files, params.additionalText, onDelta),
+            CONTENT_TASK_TIMEOUT_MS,
+            `quiz "${task.name}"`,
+          );
+        }
+      } catch (err) {
+        console.error(`[scenarize:content] "${task.name}" failed:`, (err as Error).message);
+        sendSSE(res, 'node_error', { nodeId: task.nodeId, name: task.name, message: (err as Error).message });
+        continue; // keep processing remaining tasks
       }
 
-      doneCount++;
-      results[taskIdx] = result;
+      sendSSE(res, 'node_done', { nodeId: task.nodeId, name: task.name, type: task.subtype, content, questions, index: i + 1, total });
+    }
 
-      sendSSE(res, 'node_done', {
-        nodeId: task.nodeId,
-        name: task.name,
-        type: task.subtype,
-        content: result.content,
-        questions: result.questions,
-        index: doneCount,
-        total,
-      });
-    });
-
-    await withConcurrency(taskFns, CONCURRENCY);
-
-    sendSSE(res, 'done', { results });
+    console.log(`[scenarize:content] all ${total} tasks complete`);
+    sendSSE(res, 'done', { total });
 
   } catch (err) {
     sendSSE(res, 'error', { message: (err as Error).message });

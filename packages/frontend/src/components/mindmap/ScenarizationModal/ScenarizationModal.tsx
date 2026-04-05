@@ -357,6 +357,8 @@ export function ScenarizationModal({ onClose }: Props) {
   const [contentAdditionalText, setContentAdditionalText] = useState('');
   const [contentProgress, setContentProgress] = useState({ done: 0, total: 0, currentName: '' });
   const [contentTasks, setContentTasks] = useState<ContentTaskParams[]>([]);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
+  const [nodeStreamText, setNodeStreamText] = useState('');
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -468,17 +470,20 @@ export function ScenarizationModal({ onClose }: Props) {
     if (result.meta.courseName) setProjectName(result.meta.courseName);
     const tasks = buildContentTasks(result.nodes, result.edges);
     setContentTasks(tasks);
+    setSelectedNodeIds(new Set(tasks.map(t => t.nodeId)));
     setApplied(true);
     setStep('applied');
   };
 
   const handleGenerateContent = async () => {
     if (!result) return;
-    const tasks = contentTasks.length > 0 ? contentTasks : buildContentTasks(result.nodes, result.edges);
+    const allTasks = contentTasks.length > 0 ? contentTasks : buildContentTasks(result.nodes, result.edges);
+    const tasks = allTasks.filter(t => selectedNodeIds.has(t.nodeId));
     if (tasks.length === 0) return;
 
     setStep('content_generating');
     setError('');
+    setNodeStreamText('');
     setContentProgress({ done: 0, total: tasks.length, currentName: '' });
 
     const controller = new AbortController();
@@ -490,13 +495,20 @@ export function ScenarizationModal({ onClose }: Props) {
         language,
         (event, data) => {
           const d = data as Record<string, unknown>;
-          if (event === 'progress') {
-            setContentProgress(prev => ({ ...prev, currentName: (d.message as string) ?? '' }));
+          if (event === 'node_start') {
+            setNodeStreamText('');
+            setContentProgress(prev => ({ ...prev, currentName: (d.name as string) ?? '' }));
+          } else if (event === 'node_delta') {
+            setNodeStreamText(prev => prev + ((d.text as string) ?? ''));
           } else if (event === 'node_done') {
             const nodeId = d.nodeId as string;
             if (d.content !== undefined) updateNode(nodeId, { content: d.content as string });
             if (d.questions !== undefined) updateNode(nodeId, { questions: d.questions as QuizQuestion[] });
             setContentProgress({ done: (d.index as number) ?? 0, total: (d.total as number) ?? tasks.length, currentName: (d.name as string) ?? '' });
+            setNodeStreamText('');
+          } else if (event === 'node_error') {
+            // non-fatal: continue, just log in progress
+            setContentProgress(prev => ({ ...prev, currentName: `⚠ ${(d.name as string) ?? ''} — erreur` }));
           } else if (event === 'done') {
             setStep('content_done');
           } else if (event === 'error') {
@@ -732,24 +744,48 @@ export function ScenarizationModal({ onClose }: Props) {
           {/* CONTENT SETUP */}
           {step === 'content_setup' && result && (
             <div className="space-y-5">
-              <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
-                <div className="text-xs text-slate-400 mb-2">
-                  {contentTasks.length} nœuds à générer
-                  {contentTasks.filter(t => t.subtype === 'page').length > 0 &&
-                    ` — ${contentTasks.filter(t => t.subtype === 'page').length} pages HTML`}
-                  {contentTasks.filter(t => t.subtype === 'quiz').length > 0 &&
-                    ` — ${contentTasks.filter(t => t.subtype === 'quiz').length} quiz`}
+
+              {/* Node selection */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-medium text-slate-300">
+                    Nœuds à générer <span className="text-slate-500 font-normal">({selectedNodeIds.size} / {contentTasks.length} sélectionnés)</span>
+                  </label>
+                  <div className="flex gap-2">
+                    <button onClick={() => setSelectedNodeIds(new Set(contentTasks.map(t => t.nodeId)))}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">Tout</button>
+                    <span className="text-slate-600">·</span>
+                    <button onClick={() => setSelectedNodeIds(new Set())}
+                      className="text-xs text-slate-500 hover:text-slate-300 transition-colors">Aucun</button>
+                  </div>
                 </div>
-                <div className="space-y-0.5 max-h-28 overflow-y-auto">
-                  {contentTasks.map((t, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs text-slate-400">
-                      <span>{t.subtype === 'page' ? '📄' : '❓'}</span>
-                      <span className="truncate">{t.name}</span>
-                    </div>
-                  ))}
+                <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-2 max-h-44 overflow-y-auto space-y-0.5">
+                  {contentTasks.map((t) => {
+                    const checked = selectedNodeIds.has(t.nodeId);
+                    return (
+                      <label key={t.nodeId}
+                        className={`flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer transition-colors
+                          ${checked ? 'bg-indigo-500/10' : 'hover:bg-slate-700/50'}`}>
+                        <input type="checkbox" checked={checked}
+                          onChange={() => {
+                            setSelectedNodeIds(prev => {
+                              const next = new Set(prev);
+                              if (next.has(t.nodeId)) next.delete(t.nodeId);
+                              else next.add(t.nodeId);
+                              return next;
+                            });
+                          }}
+                          className="w-3.5 h-3.5 rounded accent-indigo-500 flex-shrink-0" />
+                        <span className="text-sm">{t.subtype === 'page' ? '📄' : '❓'}</span>
+                        <span className={`text-xs truncate ${checked ? 'text-slate-200' : 'text-slate-500'}`}>{t.name}</span>
+                        <span className="ml-auto text-xs text-slate-600 flex-shrink-0">{t.subtype}</span>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
 
+              {/* Files */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-slate-300">
                   Documents sources <span className="text-slate-500 font-normal">(optionnel — enrichit le contenu)</span>
@@ -761,6 +797,7 @@ export function ScenarizationModal({ onClose }: Props) {
                 />
               </div>
 
+              {/* Additional text */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-slate-300">
                   Contexte additionnel <span className="text-slate-500 font-normal">(optionnel)</span>
@@ -769,7 +806,7 @@ export function ScenarizationModal({ onClose }: Props) {
                   value={contentAdditionalText}
                   onChange={(e) => setContentAdditionalText(e.target.value)}
                   placeholder="Instructions spécifiques, terminologie, niveau de détail…"
-                  rows={3}
+                  rows={2}
                   className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 border border-slate-700 focus:border-indigo-500 focus:outline-none placeholder:text-slate-600 resize-none"
                 />
               </div>
@@ -783,9 +820,11 @@ export function ScenarizationModal({ onClose }: Props) {
                   className="flex-1 py-2.5 rounded-xl border border-slate-700 text-sm text-slate-400 hover:text-white transition-colors">
                   ← Retour
                 </button>
-                <button onClick={() => void handleGenerateContent()}
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-semibold transition-colors flex items-center justify-center gap-2">
-                  ✨ Générer les contenus
+                <button
+                  onClick={() => void handleGenerateContent()}
+                  disabled={selectedNodeIds.size === 0}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-semibold transition-colors disabled:opacity-40 flex items-center justify-center gap-2">
+                  ✨ Générer ({selectedNodeIds.size})
                 </button>
               </div>
             </div>
@@ -793,12 +832,12 @@ export function ScenarizationModal({ onClose }: Props) {
 
           {/* CONTENT GENERATING */}
           {step === 'content_generating' && (
-            <div className="space-y-5 py-2">
+            <div className="space-y-4 py-2">
               <div className="flex items-center gap-3 text-sm text-slate-300">
                 <span className="w-4 h-4 border-2 border-indigo-500/40 border-t-indigo-400 rounded-full animate-spin flex-shrink-0" />
-                <div>
+                <div className="min-w-0">
                   <div className="text-xs text-indigo-400 font-medium uppercase tracking-wide">Génération des contenus</div>
-                  <div className="truncate">{contentProgress.currentName || 'En cours…'}</div>
+                  <div className="truncate text-sm">{contentProgress.currentName || 'En cours…'}</div>
                 </div>
               </div>
               {contentProgress.total > 0 && (
@@ -810,8 +849,17 @@ export function ScenarizationModal({ onClose }: Props) {
                   <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-indigo-500 rounded-full transition-all duration-500"
-                      style={{ width: `${(contentProgress.done / contentProgress.total) * 100}%` }}
+                      style={{ width: `${Math.round((contentProgress.done / contentProgress.total) * 100)}%` }}
                     />
+                  </div>
+                </div>
+              )}
+              {nodeStreamText && (
+                <div className="bg-slate-800/80 rounded-lg p-3 max-h-36 overflow-y-auto">
+                  <div className="text-xs text-slate-500 mb-1">Génération en cours…</div>
+                  <div className="text-xs text-slate-400 font-mono whitespace-pre-wrap leading-relaxed">
+                    {nodeStreamText.slice(-700)}
+                    <span className="inline-block w-1.5 h-3 bg-indigo-400 animate-pulse ml-0.5" />
                   </div>
                 </div>
               )}
