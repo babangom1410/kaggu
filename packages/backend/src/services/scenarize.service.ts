@@ -11,8 +11,8 @@ const MODEL_CONTENT = 'claude-sonnet-4-6';
 const MAX_TOKENS_STRUCTURE = 4_000;
 // Phase A: analyze document → CourseDocument
 const MAX_TOKENS_ANALYZE = 2_500;
-// Phase B v2: generate structure from CourseDocument (no PDF)
-const MAX_TOKENS_STRUCTURE_V2 = 3_000;
+// Phase B v2: generate structure from CourseDocument (no PDF) — 5k to support 6-8 modules
+const MAX_TOKENS_STRUCTURE_V2 = 5_000;
 // Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
 const MAX_TOKENS_CONTENT = 8_192;
 // Max concurrent content-generation calls
@@ -412,7 +412,7 @@ Génère UNIQUEMENT ce JSON de structure Moodle :
 
 RÈGLES STRICTES :
 - Exactement ${params.moduleCount} sections, dans le même ordre que les modules ci-dessus
-- Toutes les descriptions : max 2 phrases, max 30 mots
+- Toutes les descriptions : MAX 1 phrase, MAX 20 mots — sois ultra-concis
 - "questionCount" : entre 3 et ${MAX_QUESTIONS_PER_QUIZ} — JAMAIS plus
 - Pas de champ "content" ni "questions"
 - Activités : quiz, assign, forum | Ressources : page, url
