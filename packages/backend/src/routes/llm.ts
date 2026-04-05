@@ -186,7 +186,7 @@ router.post('/generate-feedback', async (req, res) => {
 // POST /api/v1/llm/scenarize/analyze — Phase A: PDF → CourseDocument (SSE)
 router.post(
   '/scenarize/analyze',
-  express.json({ limit: '20mb' }),
+  express.json({ limit: '50mb' }),
   async (req, res) => {
     req.socket.setTimeout(0);
     const MAX_PDF_BASE64_CHARS = 8 * 1024 * 1024;

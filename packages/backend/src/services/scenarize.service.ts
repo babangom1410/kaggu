@@ -9,10 +9,14 @@ const MODEL_STRUCTURE = 'claude-sonnet-4-6';
 const MODEL_CONTENT = 'claude-sonnet-4-6';
 // Structure JSON for 4-8 modules ≈ 2-3k tokens with concise descriptions
 const MAX_TOKENS_STRUCTURE = 4_000;
-// Phase A: analyze document → CourseDocument
-const MAX_TOKENS_ANALYZE = 2_500;
+// Phase A: analyze document → CourseDocument (4k supports up to 20 modules × 100-word summaries)
+const MAX_TOKENS_ANALYZE = 4_000;
 // Phase B v2: one section per call — ~400-600 tokens, ~10-15s, zero truncation risk
 const MAX_TOKENS_STRUCTURE_V2 = 1_500;
+// Timeout per section call in Phase B — prevents hung API calls from blocking forever
+const SECTION_CALL_TIMEOUT_MS = 60_000;
+// Timeout for Phase A full document analysis (PDF can be slow)
+const ANALYZE_TIMEOUT_MS = 120_000;
 // Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
 const MAX_TOKENS_CONTENT = 8_192;
 // Max concurrent content-generation calls
@@ -383,23 +387,27 @@ function buildSectionPrompt(
   sectionIndex: number,
 ): string {
   const doc = params.courseDocument;
+  // Sanitize name for use inside JSON example (avoid breaking the template)
+  const safeName = (section.name ?? '').replace(/"/g, "'").trim() || `Module ${sectionIndex + 1}`;
+  const summary = section.contentSummary || '';
+
   return `Tu es un ingénieur pédagogique expert qui conçoit des formations Moodle.
 
 COURS : ${doc.courseName} | Niveau : ${params.level} | Durée : ${params.duration} | Langue : ${params.language}
 ${params.additionalContext ? `Instructions : ${params.additionalContext}` : ''}
 
 MODULE À STRUCTURER :
-Module ${sectionIndex + 1} — ${section.name} :
-${section.contentSummary}
+Module ${sectionIndex + 1} — ${safeName} :
+${summary}
 
 Génère UNIQUEMENT ce JSON (1 section) :
 {
   "sections": [
     {
-      "name": "Module ${sectionIndex + 1} : ${section.name}",
+      "name": "Module ${sectionIndex + 1} : ${safeName}",
       "summary": "1 phrase.",
       "nodes": [
-        { "type": "resource", "subtype": "page", "name": "Titre", "description": "1 phrase max 20 mots.", "completion": 1 },
+        { "type": "resource", "subtype": "page", "name": "Titre de la page", "description": "1 phrase max 20 mots.", "completion": 1 },
         { "type": "activity", "subtype": "quiz", "name": "Quiz : Titre", "description": "1 phrase max 20 mots.", "questionCount": 4, "completion": 2 }
       ]
     }
@@ -682,28 +690,36 @@ export async function analyzeDocument(
     let firstDelta = true;
 
     console.log(`[scenarize:analyze] ${elapsed()} calling Anthropic API…`);
-    const stream = client.messages.stream({
-      model: MODEL_STRUCTURE,
-      max_tokens: MAX_TOKENS_ANALYZE,
-      system: buildAnalyzePrompt(params),
-      messages: [{ role: 'user', content: userContent as Anthropic.ContentBlockParam[] }],
-    });
 
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        if (firstDelta) {
-          console.log(`[scenarize:analyze] ${elapsed()} first delta received`);
-          firstDelta = false;
+    const { text: analyzedText, stopReason: analyzeStopReason } = await withTimeout(
+      (async () => {
+        const stream = client.messages.stream({
+          model: MODEL_STRUCTURE,
+          max_tokens: MAX_TOKENS_ANALYZE,
+          system: buildAnalyzePrompt(params),
+          messages: [{ role: 'user', content: userContent as Anthropic.ContentBlockParam[] }],
+        });
+        let text = '';
+        for await (const event of stream) {
+          if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+            if (firstDelta) {
+              console.log(`[scenarize:analyze] ${elapsed()} first delta received`);
+              firstDelta = false;
+            }
+            text += event.delta.text;
+            sendSSE(res, 'delta', { text: event.delta.text });
+          }
         }
-        docText += event.delta.text;
-        sendSSE(res, 'delta', { text: event.delta.text });
-      }
-    }
+        return { text, stopReason: (await stream.finalMessage()).stop_reason };
+      })(),
+      ANALYZE_TIMEOUT_MS,
+      'analyzeDocument',
+    );
+    docText = analyzedText;
 
     console.log(`[scenarize:analyze] ${elapsed()} stream complete — ${docText.length} chars`);
 
-    const finalMsg = await stream.finalMessage();
-    if (finalMsg.stop_reason === 'max_tokens') {
+    if (analyzeStopReason === 'max_tokens') {
       sendSSE(res, 'error', {
         message: 'Analyse tronquée (limite de tokens). Réduis le nombre de fichiers ou de modules.',
       });
@@ -721,6 +737,12 @@ export async function analyzeDocument(
       console.error('[scenarize:analyze] parse error:', (e as Error).message);
       sendSSE(res, 'error', { message: `Document JSON invalide : ${(e as Error).message}` });
       return;
+    }
+
+    // Guard: trim sections to requested moduleCount if Claude generated more
+    if (courseDocument.sections.length > params.moduleCount) {
+      console.log(`[scenarize:analyze] trimming ${courseDocument.sections.length} → ${params.moduleCount} sections`);
+      courseDocument.sections = courseDocument.sections.slice(0, params.moduleCount);
     }
 
     console.log(`[scenarize:analyze] ${elapsed()} sending done — ${courseDocument.sections.length} sections`);
@@ -771,29 +793,33 @@ export async function scenarizeCourseFromDocument(
 
       console.log(`[scenarize:structure] ${elapsed()} section ${i + 1}/${allSections.length} — "${section.name}"`);
 
-      let sectionText = '';
-
-      const stream = client.messages.stream({
-        model: MODEL_STRUCTURE,
-        max_tokens: MAX_TOKENS_STRUCTURE_V2,
-        system: buildSectionPrompt(params, section, i),
-        messages: [{
-          role: 'user',
-          content: 'Génère la structure JSON. Retourne UNIQUEMENT le JSON.',
-        }],
-      });
-
-      for await (const event of stream) {
-        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-          sectionText += event.delta.text;
-          sendSSE(res, 'delta', { text: event.delta.text });
-        }
-      }
+      const { text: sectionText, stopReason } = await withTimeout(
+        (async () => {
+          const stream = client.messages.stream({
+            model: MODEL_STRUCTURE,
+            max_tokens: MAX_TOKENS_STRUCTURE_V2,
+            system: buildSectionPrompt(params, section, i),
+            messages: [{
+              role: 'user',
+              content: 'Génère la structure JSON. Retourne UNIQUEMENT le JSON.',
+            }],
+          });
+          let text = '';
+          for await (const event of stream) {
+            if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+              text += event.delta.text;
+              sendSSE(res, 'delta', { text: event.delta.text });
+            }
+          }
+          return { text, stopReason: (await stream.finalMessage()).stop_reason };
+        })(),
+        SECTION_CALL_TIMEOUT_MS,
+        `section ${i + 1} "${section.name}"`,
+      );
 
       console.log(`[scenarize:structure] ${elapsed()} section ${i + 1} complete — ${sectionText.length} chars`);
 
-      const finalMsg = await stream.finalMessage();
-      if (finalMsg.stop_reason === 'max_tokens') {
+      if (stopReason === 'max_tokens') {
         sendSSE(res, 'error', {
           message: `Module "${section.name}" tronqué. Contacte le support.`,
         });
