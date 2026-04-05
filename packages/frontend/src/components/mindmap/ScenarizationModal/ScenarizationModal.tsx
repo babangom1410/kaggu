@@ -374,6 +374,8 @@ export function ScenarizationModal({ onClose }: Props) {
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
   // Map of nodeId → name for nodes currently being generated (concurrent)
   const [activeNodes, setActiveNodes] = useState<Map<string, string>>(new Map());
+  // Nodes that failed during content generation — used to offer retry
+  const [failedNodes, setFailedNodes] = useState<{ nodeId: string; name: string; subtype: string }[]>([]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -499,6 +501,7 @@ export function ScenarizationModal({ onClose }: Props) {
     setStep('content_generating');
     setError('');
     setActiveNodes(new Map());
+    setFailedNodes([]);
     setContentProgress({ done: 0, total: tasks.length });
 
     const controller = new AbortController();
@@ -524,6 +527,11 @@ export function ScenarizationModal({ onClose }: Props) {
             const nodeId = d.nodeId as string;
             setActiveNodes(prev => { const m = new Map(prev); m.delete(nodeId); return m; });
             setContentProgress(prev => ({ ...prev, done: prev.done + 1 }));
+            setFailedNodes(prev => [...prev, {
+              nodeId,
+              name: (d.name as string) ?? nodeId,
+              subtype: tasks.find(t => t.nodeId === nodeId)?.subtype ?? 'page',
+            }]);
           } else if (event === 'done') {
             setStep('content_done');
           } else if (event === 'error') {
@@ -893,12 +901,44 @@ export function ScenarizationModal({ onClose }: Props) {
 
           {/* CONTENT DONE */}
           {step === 'content_done' && (
-            <div className="py-8 text-center space-y-3">
-              <div className="text-3xl">🎉</div>
-              <div className="text-sm font-medium text-emerald-400">Contenus générés !</div>
-              <div className="text-xs text-slate-500">{contentProgress.total} nœuds mis à jour dans le mindmap</div>
+            <div className="py-6 space-y-4">
+              <div className="text-center space-y-2">
+                <div className="text-3xl">{failedNodes.length === 0 ? '🎉' : '⚠️'}</div>
+                <div className={`text-sm font-medium ${failedNodes.length === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {failedNodes.length === 0
+                    ? 'Tous les contenus ont été générés !'
+                    : `${contentProgress.total - failedNodes.length} / ${contentProgress.total} nœuds générés`}
+                </div>
+              </div>
+
+              {failedNodes.length > 0 && (
+                <div className="bg-red-500/8 border border-red-500/20 rounded-xl p-3 space-y-2">
+                  <div className="text-xs font-medium text-red-400">
+                    {failedNodes.length} nœud{failedNodes.length > 1 ? 's' : ''} non généré{failedNodes.length > 1 ? 's' : ''}
+                  </div>
+                  <div className="space-y-1 max-h-32 overflow-y-auto">
+                    {failedNodes.map((n) => (
+                      <div key={n.nodeId} className="flex items-center gap-2 text-xs text-red-300/80">
+                        <span>{n.subtype === 'page' ? '📄' : '❓'}</span>
+                        <span className="truncate">{n.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setSelectedNodeIds(new Set(failedNodes.map(n => n.nodeId)));
+                      setStep('content_setup');
+                      setError('');
+                    }}
+                    className="w-full mt-1 py-2 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-xs text-red-300 font-medium transition-colors"
+                  >
+                    ↺ Relancer les {failedNodes.length} nœuds échoués
+                  </button>
+                </div>
+              )}
+
               <button onClick={onClose}
-                className="mt-4 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-semibold transition-colors">
+                className="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-semibold transition-colors">
                 Fermer
               </button>
             </div>
