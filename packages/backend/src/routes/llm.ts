@@ -278,9 +278,15 @@ router.post(
 // POST /api/v1/llm/scenarize/content — Phase 2: generate HTML + quiz questions for nodes (SSE)
 router.post(
   '/scenarize/content',
-  express.json({ limit: '1mb' }),
+  express.json({ limit: '50mb' }),
   async (req, res) => {
     req.socket.setTimeout(0);
+    const MAX_PDF_BASE64_CHARS = 8 * 1024 * 1024;
+    const fileSchema = z.object({
+      name:    z.string().min(1),
+      type:    z.enum(['pdf', 'markdown', 'text']),
+      content: z.string().min(1).max(MAX_PDF_BASE64_CHARS),
+    });
     const taskSchema = z.object({
       nodeId:       z.string().min(1),
       subtype:      z.enum(['page', 'quiz']),
@@ -291,8 +297,10 @@ router.post(
     });
 
     const schema = z.object({
-      tasks:    z.array(taskSchema).min(1).max(100),
-      language: z.string().min(2).max(50).default('Français'),
+      tasks:          z.array(taskSchema).min(1).max(100),
+      language:       z.string().min(2).max(50).default('Français'),
+      files:          z.array(fileSchema).max(5).default([]),
+      additionalText: z.string().max(3000).optional(),
     });
 
     const parsed = schema.safeParse(req.body);

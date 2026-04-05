@@ -207,8 +207,10 @@ export function scenarizeContent(
   language: string,
   onEvent: SSECallback,
   signal?: AbortSignal,
+  files?: ScenarizationFile[],
+  additionalText?: string,
 ) {
-  return streamPost('/api/v1/llm/scenarize/content', { tasks, language }, onEvent, signal);
+  return streamPost('/api/v1/llm/scenarize/content', { tasks, language, files: files ?? [], additionalText }, onEvent, signal);
 }
 
 export async function generateFeedback(

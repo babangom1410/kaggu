@@ -2,17 +2,19 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import {
   analyzeDocument,
   scenarizeFromDocument,
+  scenarizeContent,
   type ScenarizationFile,
   type CourseDocument,
+  type ContentTaskParams,
 } from '@/api/llm-api';
 import { useMindmapStore } from '@/stores/mindmap-store';
-import type { MindmapNode, MindmapEdge } from '@/types/mindmap.types';
+import type { MindmapNode, MindmapEdge, QuizQuestion } from '@/types/mindmap.types';
 
 interface Props {
   onClose: () => void;
 }
 
-type Step = 'setup' | 'analyzing' | 'analysis_review' | 'structuring' | 'preview' | 'applied';
+type Step = 'setup' | 'analyzing' | 'analysis_review' | 'structuring' | 'preview' | 'applied' | 'content_setup' | 'content_generating' | 'content_done';
 
 interface ScenResult {
   nodes: MindmapNode[];
@@ -298,10 +300,39 @@ function PreviewView({
   );
 }
 
+// ─── buildContentTasks ─────────────────────────────────────────────────────
+
+function buildContentTasks(nodes: MindmapNode[], edges: MindmapEdge[]): ContentTaskParams[] {
+  const tasks: ContentTaskParams[] = [];
+  const sectionNodes = nodes.filter(n => n.type === 'section');
+  for (const sec of sectionNodes) {
+    const secData = sec.data as unknown as { contentContext?: string };
+    const ctx = secData.contentContext ?? '';
+    const childIds = edges.filter(e => e.source === sec.id).map(e => e.target);
+    for (const childId of childIds) {
+      const child = nodes.find(n => n.id === childId);
+      if (!child) continue;
+      const d = child.data as unknown as Record<string, unknown>;
+      const subtype = d.subtype as string;
+      if (subtype === 'page' || subtype === 'quiz') {
+        tasks.push({
+          nodeId: child.id,
+          subtype: subtype as 'page' | 'quiz',
+          name: (d.name as string) ?? '',
+          description: (d.description as string) ?? '',
+          contentContext: ctx,
+          questionCount: d.questionCount as number | undefined,
+        });
+      }
+    }
+  }
+  return tasks;
+}
+
 // ─── Main component ────────────────────────────────────────────────────────
 
 export function ScenarizationModal({ onClose }: Props) {
-  const { replaceContent, setProjectName } = useMindmapStore();
+  const { replaceContent, setProjectName, updateNode } = useMindmapStore();
 
   // Setup state
   const [files, setFiles] = useState<ScenarizationFile[]>([]);
@@ -320,6 +351,12 @@ export function ScenarizationModal({ onClose }: Props) {
   const [result, setResult] = useState<ScenResult | null>(null);
   const [applied, setApplied] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
+
+  // Phase 2 — content generation state
+  const [contentFiles, setContentFiles] = useState<ScenarizationFile[]>([]);
+  const [contentAdditionalText, setContentAdditionalText] = useState('');
+  const [contentProgress, setContentProgress] = useState({ done: 0, total: 0, currentName: '' });
+  const [contentTasks, setContentTasks] = useState<ContentTaskParams[]>([]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -422,14 +459,65 @@ export function ScenarizationModal({ onClose }: Props) {
     abortRef.current?.abort();
     if (step === 'analyzing') setStep('setup');
     else if (step === 'structuring') setStep('analysis_review');
+    else if (step === 'content_generating') setStep('content_setup');
   };
 
   const handleApply = () => {
     if (!result) return;
     replaceContent(result.nodes, result.edges);
     if (result.meta.courseName) setProjectName(result.meta.courseName);
+    const tasks = buildContentTasks(result.nodes, result.edges);
+    setContentTasks(tasks);
     setApplied(true);
-    setTimeout(onClose, 800);
+    setStep('applied');
+  };
+
+  const handleGenerateContent = async () => {
+    if (!result) return;
+    const tasks = contentTasks.length > 0 ? contentTasks : buildContentTasks(result.nodes, result.edges);
+    if (tasks.length === 0) return;
+
+    setStep('content_generating');
+    setError('');
+    setContentProgress({ done: 0, total: tasks.length, currentName: '' });
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      await scenarizeContent(
+        tasks,
+        language,
+        (event, data) => {
+          const d = data as Record<string, unknown>;
+          if (event === 'progress') {
+            setContentProgress(prev => ({ ...prev, currentName: (d.message as string) ?? '' }));
+          } else if (event === 'node_done') {
+            const nodeId = d.nodeId as string;
+            if (d.content !== undefined) updateNode(nodeId, { content: d.content as string });
+            if (d.questions !== undefined) updateNode(nodeId, { questions: d.questions as QuizQuestion[] });
+            setContentProgress({ done: (d.index as number) ?? 0, total: (d.total as number) ?? tasks.length, currentName: (d.name as string) ?? '' });
+          } else if (event === 'done') {
+            setStep('content_done');
+          } else if (event === 'error') {
+            setError((d.message as string) ?? 'Erreur inconnue');
+            setStep('content_setup');
+          }
+        },
+        controller.signal,
+        contentFiles,
+        contentAdditionalText || undefined,
+      );
+    } catch (e) {
+      if ((e as Error).name !== 'AbortError') {
+        setError((e as Error).message);
+        setStep('content_setup');
+      } else {
+        setStep('content_setup');
+      }
+    } finally {
+      abortRef.current = null;
+    }
   };
 
   const canGenerate = level.trim() && duration.trim() && moduleCount >= 1;
@@ -442,9 +530,12 @@ export function ScenarizationModal({ onClose }: Props) {
     structuring: 'Génération de la structure du mindmap…',
     preview: 'Aperçu de la structure générée',
     applied: '',
+    content_setup: 'Ajoutez des ressources pour enrichir le contenu',
+    content_generating: 'Génération des contenus en cours…',
+    content_done: '',
   }[step];
 
-  const isGenerating = step === 'analyzing' || step === 'structuring';
+  const isGenerating = step === 'analyzing' || step === 'structuring' || step === 'content_generating';
 
   // ── Step label for GeneratingView ─────────────────────────────────────────
   const stepLabel = step === 'analyzing' ? 'Étape 1 / 2 — Analyse documentaire' : 'Étape 2 / 2 — Structure mindmap';
@@ -600,7 +691,7 @@ export function ScenarizationModal({ onClose }: Props) {
           )}
 
           {/* PREVIEW — checkpoint 2 */}
-          {step === 'preview' && result && !applied && (
+          {step === 'preview' && result && (
             <>
               {error && (
                 <div className="mb-4 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5 text-xs text-red-400">{error}</div>
@@ -614,10 +705,132 @@ export function ScenarizationModal({ onClose }: Props) {
           )}
 
           {/* APPLIED */}
-          {applied && (
-            <div className="py-8 text-center space-y-2">
+          {step === 'applied' && (
+            <div className="py-6 text-center space-y-5">
               <div className="text-3xl">✅</div>
               <div className="text-sm font-medium text-emerald-400">Mindmap mis à jour !</div>
+              {result && contentTasks.length > 0 && (
+                <div className="text-xs text-slate-400">
+                  {contentTasks.length} nœuds à enrichir (pages HTML + questions quiz)
+                </div>
+              )}
+              <div className="flex gap-3 pt-2">
+                <button onClick={onClose}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-700 text-sm text-slate-400 hover:text-white transition-colors">
+                  Fermer
+                </button>
+                {result && contentTasks.length > 0 && (
+                  <button onClick={() => { setStep('content_setup'); setError(''); }}
+                    className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-semibold transition-colors">
+                    📝 Générer les contenus →
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* CONTENT SETUP */}
+          {step === 'content_setup' && result && (
+            <div className="space-y-5">
+              <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-3">
+                <div className="text-xs text-slate-400 mb-2">
+                  {contentTasks.length} nœuds à générer
+                  {contentTasks.filter(t => t.subtype === 'page').length > 0 &&
+                    ` — ${contentTasks.filter(t => t.subtype === 'page').length} pages HTML`}
+                  {contentTasks.filter(t => t.subtype === 'quiz').length > 0 &&
+                    ` — ${contentTasks.filter(t => t.subtype === 'quiz').length} quiz`}
+                </div>
+                <div className="space-y-0.5 max-h-28 overflow-y-auto">
+                  {contentTasks.map((t, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs text-slate-400">
+                      <span>{t.subtype === 'page' ? '📄' : '❓'}</span>
+                      <span className="truncate">{t.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-300">
+                  Documents sources <span className="text-slate-500 font-normal">(optionnel — enrichit le contenu)</span>
+                </label>
+                <FileDropZone
+                  files={contentFiles}
+                  onAdd={(f) => setContentFiles(prev => [...prev, ...f])}
+                  onRemove={(idx) => setContentFiles(prev => prev.filter((_, i) => i !== idx))}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-300">
+                  Contexte additionnel <span className="text-slate-500 font-normal">(optionnel)</span>
+                </label>
+                <textarea
+                  value={contentAdditionalText}
+                  onChange={(e) => setContentAdditionalText(e.target.value)}
+                  placeholder="Instructions spécifiques, terminologie, niveau de détail…"
+                  rows={3}
+                  className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 border border-slate-700 focus:border-indigo-500 focus:outline-none placeholder:text-slate-600 resize-none"
+                />
+              </div>
+
+              {error && (
+                <div className="bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2.5 text-xs text-red-400">{error}</div>
+              )}
+
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => { setStep('applied'); setError(''); }}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-700 text-sm text-slate-400 hover:text-white transition-colors">
+                  ← Retour
+                </button>
+                <button onClick={() => void handleGenerateContent()}
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-semibold transition-colors flex items-center justify-center gap-2">
+                  ✨ Générer les contenus
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* CONTENT GENERATING */}
+          {step === 'content_generating' && (
+            <div className="space-y-5 py-2">
+              <div className="flex items-center gap-3 text-sm text-slate-300">
+                <span className="w-4 h-4 border-2 border-indigo-500/40 border-t-indigo-400 rounded-full animate-spin flex-shrink-0" />
+                <div>
+                  <div className="text-xs text-indigo-400 font-medium uppercase tracking-wide">Génération des contenus</div>
+                  <div className="truncate">{contentProgress.currentName || 'En cours…'}</div>
+                </div>
+              </div>
+              {contentProgress.total > 0 && (
+                <div className="space-y-1.5">
+                  <div className="flex justify-between text-xs text-slate-500">
+                    <span>{contentProgress.done} / {contentProgress.total} nœuds</span>
+                    <span>{Math.round((contentProgress.done / contentProgress.total) * 100)}%</span>
+                  </div>
+                  <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                      style={{ width: `${(contentProgress.done / contentProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <button onClick={handleCancel} className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                Annuler
+              </button>
+            </div>
+          )}
+
+          {/* CONTENT DONE */}
+          {step === 'content_done' && (
+            <div className="py-8 text-center space-y-3">
+              <div className="text-3xl">🎉</div>
+              <div className="text-sm font-medium text-emerald-400">Contenus générés !</div>
+              <div className="text-xs text-slate-500">{contentProgress.total} nœuds mis à jour dans le mindmap</div>
+              <button onClick={onClose}
+                className="mt-4 px-6 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm text-white font-semibold transition-colors">
+                Fermer
+              </button>
             </div>
           )}
         </div>

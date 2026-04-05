@@ -434,14 +434,38 @@ async function generatePageHtml(
   description: string,
   context: string,
   language: string,
+  files?: ScenarizationFile[],
+  additionalText?: string,
 ): Promise<string> {
+  const userContent: unknown[] = [];
+
+  if (files && files.length > 0) {
+    for (const file of files) {
+      if (file.type === 'pdf') {
+        userContent.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: file.content },
+          title: file.name,
+        });
+      } else {
+        userContent.push({ type: 'text', text: `## ${file.name}\n\n${file.content.slice(0, MAX_TEXT_FILE_CHARS)}` });
+      }
+    }
+  }
+
+  let instruction = `Page : "${name}"\nObjectif : ${description}\nContenu source :\n${context}\nLangue : ${language}`;
+  if (additionalText) instruction += `\n\nInstructions supplémentaires : ${additionalText}`;
+  instruction += '\n\nGénère le contenu HTML complet de cette page.';
+
+  userContent.push({ type: 'text', text: instruction });
+
   const message = await client.messages.create({
     model: MODEL_CONTENT,
     max_tokens: MAX_TOKENS_CONTENT,
     system: PAGE_SYSTEM,
     messages: [{
       role: 'user',
-      content: `Page : "${name}"\nObjectif : ${description}\nContenu source :\n${context}\nLangue : ${language}\n\nGénère le contenu HTML complet de cette page.`,
+      content: userContent as Anthropic.ContentBlockParam[],
     }],
   });
   if (message.stop_reason === 'max_tokens') {
@@ -468,7 +492,33 @@ async function generateQuizForScen(
   context: string,
   questionCount: number,
   language: string,
+  files?: ScenarizationFile[],
+  additionalText?: string,
 ): Promise<unknown[]> {
+  const userContent: unknown[] = [];
+
+  if (files && files.length > 0) {
+    for (const file of files) {
+      if (file.type === 'pdf') {
+        userContent.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: file.content },
+          title: file.name,
+        });
+      } else {
+        userContent.push({ type: 'text', text: `## ${file.name}\n\n${file.content.slice(0, MAX_TEXT_FILE_CHARS)}` });
+      }
+    }
+  }
+
+  let instruction = `Quiz : "${name}" | Évalue : ${description}
+Contenu source : ${context}
+Langue : ${language}`;
+  if (additionalText) instruction += `\nInstructions supplémentaires : ${additionalText}`;
+  instruction += `\nGénère EXACTEMENT ${questionCount} questions variées. Retourne uniquement le tableau JSON.`;
+
+  userContent.push({ type: 'text', text: instruction });
+
   const message = await client.messages.create({
     model: MODEL_CONTENT,
     max_tokens: MAX_TOKENS_CONTENT,
@@ -478,10 +528,7 @@ Types disponibles : multichoice, truefalse, shortanswer, numerical.
 Format : ${QUIZ_SCHEMA}`,
     messages: [{
       role: 'user',
-      content: `Quiz : "${name}" | Évalue : ${description}
-Contenu source : ${context}
-Langue : ${language}
-Génère EXACTEMENT ${questionCount} questions variées. Retourne uniquement le tableau JSON.`,
+      content: userContent as Anthropic.ContentBlockParam[],
     }],
   });
 
@@ -517,6 +564,8 @@ export interface ContentTask {
 export interface ContentGenerationParams {
   tasks: ContentTask[];
   language: string;
+  files?: ScenarizationFile[];      // optional PDF/markdown for context
+  additionalText?: string;           // optional free text for context
 }
 
 // ─── Mindmap conversion (same as before) ──────────────────────────────────────
@@ -1076,7 +1125,7 @@ export async function scenarizeContent(
 
       if (task.subtype === 'page') {
         const html = await withTimeout(
-          generatePageHtml(client, task.name, task.description, context, params.language),
+          generatePageHtml(client, task.name, task.description, context, params.language, params.files, params.additionalText),
           CONTENT_TASK_TIMEOUT_MS,
           `page "${task.name}"`,
         );
@@ -1084,7 +1133,7 @@ export async function scenarizeContent(
       } else if (task.subtype === 'quiz') {
         const count = Math.min(task.questionCount ?? 5, MAX_QUESTIONS_PER_QUIZ);
         const questions = await withTimeout(
-          generateQuizForScen(client, task.name, task.description, context, count, params.language),
+          generateQuizForScen(client, task.name, task.description, context, count, params.language, params.files, params.additionalText),
           CONTENT_TASK_TIMEOUT_MS,
           `quiz "${task.name}"`,
         );
