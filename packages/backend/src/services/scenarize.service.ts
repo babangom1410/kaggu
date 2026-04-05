@@ -9,6 +9,10 @@ const MODEL_STRUCTURE = 'claude-sonnet-4-6';
 const MODEL_CONTENT = 'claude-sonnet-4-6';
 // Structure JSON for 4-8 modules ≈ 2-3k tokens with concise descriptions
 const MAX_TOKENS_STRUCTURE = 4_000;
+// Phase A: analyze document → CourseDocument
+const MAX_TOKENS_ANALYZE = 2_500;
+// Phase B v2: generate structure from CourseDocument (no PDF)
+const MAX_TOKENS_STRUCTURE_V2 = 3_000;
 // Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
 const MAX_TOKENS_CONTENT = 8_192;
 // Max concurrent content-generation calls
@@ -29,6 +33,29 @@ function getClient(): Anthropic {
 }
 
 // ─── Public interface ─────────────────────────────────────────────────────────
+
+export interface CourseDocumentSection {
+  name: string;
+  contentSummary: string;
+}
+
+export interface CourseDocument {
+  courseName: string;
+  shortname: string;
+  globalDescription: string;
+  outcomes: string[];
+  competencies: string[];
+  sections: CourseDocumentSection[];
+}
+
+export interface StructureFromDocParams {
+  courseDocument: CourseDocument;
+  level: string;
+  duration: string;
+  moduleCount: number;
+  language: string;
+  additionalContext?: string;
+}
 
 export interface ScenarizationFile {
   name: string;
@@ -310,6 +337,88 @@ RÈGLES STRICTES :
 - BranchNode uniquement si explicitement demandé`;
 }
 
+function buildAnalyzePrompt(params: ScenarizationParams): string {
+  return `Tu es un ingénieur pédagogique expert.
+PARAMÈTRES DE LA FORMATION :
+- Niveau : ${params.level}
+- Durée : ${params.duration}
+- Nombre de modules : ${params.moduleCount}
+- Langue de sortie : ${params.language}
+${params.additionalContext ? `- Instructions : ${params.additionalContext}` : ''}
+
+${params.files.length > 0 ? 'Analyse les fichiers fournis et génère' : 'Génère'} UNIQUEMENT ce JSON valide :
+
+{
+  "courseName": "Titre complet du cours",
+  "shortname": "CODE10",
+  "globalDescription": "5 à 8 phrases décrivant le cours, son contexte, sa valeur pédagogique et son public cible.",
+  "outcomes": ["Résultat d'apprentissage mesurable 1", "Résultat 2", "Résultat 3"],
+  "competencies": ["Compétence concrète 1", "Compétence 2"],
+  "sections": [
+    {
+      "name": "Module 1 : Titre du module",
+      "contentSummary": "80 à 100 mots décrivant fidèlement les concepts, notions et pratiques couverts dans ce module, tels qu'ils apparaissent dans les fichiers sources."
+    }
+  ]
+}
+
+RÈGLES STRICTES :
+- Exactement ${params.moduleCount} sections
+- "shortname" : max 10 caractères, MAJUSCULES, sans espaces
+- "globalDescription" : 5-8 phrases complètes, riches en contenu
+- "contentSummary" : fidèle au PDF — cite des notions concrètes, pas de généralités
+- "outcomes" : 3 à 5 résultats mesurables et concrets
+- "competencies" : 2 à 4 compétences pratiques`;
+}
+
+function buildStructureFromDocPrompt(params: StructureFromDocParams): string {
+  const doc = params.courseDocument;
+  const sectionsText = doc.sections
+    .map((s, i) => `Module ${i + 1} — ${s.name} :\n${s.contentSummary}`)
+    .join('\n\n');
+
+  return `Tu es un ingénieur pédagogique expert qui conçoit des formations Moodle.
+
+DOCUMENT DU COURS :
+Titre : ${doc.courseName}
+Description : ${doc.globalDescription}
+Résultats attendus : ${doc.outcomes.join(' | ')}
+
+CONTENU PAR MODULE :
+${sectionsText}
+
+PARAMÈTRES :
+- Niveau : ${params.level}
+- Durée : ${params.duration}
+- Langue de sortie : ${params.language}
+${params.additionalContext ? `- Instructions : ${params.additionalContext}` : ''}
+
+Génère UNIQUEMENT ce JSON de structure Moodle :
+
+{
+  "sections": [
+    {
+      "name": "Module 1 : Titre",
+      "summary": "1 phrase.",
+      "nodes": [
+        { "type": "resource", "subtype": "page", "name": "Titre de la page", "description": "1 phrase.", "completion": 1 },
+        { "type": "activity", "subtype": "quiz", "name": "Quiz : Titre", "description": "1 phrase.", "questionCount": 4, "completion": 2 },
+        { "type": "activity", "subtype": "assign", "name": "Devoir : Titre", "description": "2 phrases max : tâche + livrable.", "maxgrade": 20, "submissiontype": "online_text", "completion": 2 },
+        { "type": "activity", "subtype": "forum", "name": "Discussion : Titre", "description": "1 phrase.", "completion": 1 }
+      ]
+    }
+  ]
+}
+
+RÈGLES STRICTES :
+- Exactement ${params.moduleCount} sections, dans le même ordre que les modules ci-dessus
+- Toutes les descriptions : max 2 phrases, max 30 mots
+- "questionCount" : entre 3 et ${MAX_QUESTIONS_PER_QUIZ} — JAMAIS plus
+- Pas de champ "content" ni "questions"
+- Activités : quiz, assign, forum | Ressources : page, url
+- BranchNode uniquement si explicitement demandé dans les instructions`;
+}
+
 // ─── Step 2: content generation helpers ───────────────────────────────────────
 
 const PAGE_SYSTEM = `Tu génères du contenu HTML pour une page de cours Moodle.
@@ -532,6 +641,232 @@ function scenarizationToMindmap(
 }
 
 // ─── Main exports ─────────────────────────────────────────────────────────────
+
+/** Phase A: reads PDFs + generates CourseDocument (title, description, outcomes, section summaries) */
+export async function analyzeDocument(
+  params: ScenarizationParams,
+  res: Response,
+): Promise<void> {
+  const t0 = Date.now();
+  const elapsed = () => `+${((Date.now() - t0) / 1000).toFixed(1)}s`;
+  const client = getClient();
+  initSSE(res);
+  const heartbeat = startHeartbeat(res);
+
+  try {
+    const hasFiles = params.files.length > 0;
+    console.log(`[scenarize:analyze] START hasFiles=${hasFiles} files=${params.files.map(f => `${f.name}(${Math.round(f.content.length / 1000)}KB)`).join(',') || 'none'}`);
+
+    sendSSE(res, 'progress', {
+      step: 'analyze',
+      message: hasFiles ? 'Lecture et analyse des documents…' : 'Analyse des paramètres de formation…',
+    });
+
+    const userContent: unknown[] = [];
+    for (const file of params.files) {
+      if (file.type === 'pdf') {
+        userContent.push({
+          type: 'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: file.content },
+          title: file.name,
+        });
+      } else {
+        userContent.push({ type: 'text', text: `## ${file.name}\n\n${file.content.slice(0, MAX_TEXT_FILE_CHARS)}` });
+      }
+    }
+    userContent.push({
+      type: 'text',
+      text: hasFiles
+        ? 'Analyse les fichiers ci-dessus et génère le document pédagogique JSON. Retourne UNIQUEMENT le JSON.'
+        : 'Génère le document pédagogique JSON selon les paramètres. Retourne UNIQUEMENT le JSON.',
+    });
+
+    let docText = '';
+    let firstDelta = true;
+
+    console.log(`[scenarize:analyze] ${elapsed()} calling Anthropic API…`);
+    const stream = client.messages.stream({
+      model: MODEL_STRUCTURE,
+      max_tokens: MAX_TOKENS_ANALYZE,
+      system: buildAnalyzePrompt(params),
+      messages: [{ role: 'user', content: userContent as Anthropic.ContentBlockParam[] }],
+    });
+
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        if (firstDelta) {
+          console.log(`[scenarize:analyze] ${elapsed()} first delta received`);
+          firstDelta = false;
+        }
+        docText += event.delta.text;
+        sendSSE(res, 'delta', { text: event.delta.text });
+      }
+    }
+
+    console.log(`[scenarize:analyze] ${elapsed()} stream complete — ${docText.length} chars`);
+
+    const finalMsg = await stream.finalMessage();
+    if (finalMsg.stop_reason === 'max_tokens') {
+      sendSSE(res, 'error', {
+        message: 'Analyse tronquée (limite de tokens). Réduis le nombre de fichiers ou de modules.',
+      });
+      return;
+    }
+
+    const jsonText = extractJsonBlock(docText);
+    let courseDocument: CourseDocument;
+    try {
+      courseDocument = JSON.parse(jsonText) as CourseDocument;
+      if (!courseDocument.sections || courseDocument.sections.length === 0) {
+        throw new Error('Aucune section générée');
+      }
+    } catch (e) {
+      console.error('[scenarize:analyze] parse error:', (e as Error).message);
+      sendSSE(res, 'error', { message: `Document JSON invalide : ${(e as Error).message}` });
+      return;
+    }
+
+    console.log(`[scenarize:analyze] ${elapsed()} sending done — ${courseDocument.sections.length} sections`);
+    sendSSE(res, 'done', { courseDocument });
+
+  } catch (err) {
+    console.error(`[scenarize:analyze] ${elapsed()} ERROR:`, (err as Error).message);
+    sendSSE(res, 'error', { message: (err as Error).message });
+  } finally {
+    clearInterval(heartbeat);
+    res.end();
+    console.log(`[scenarize:analyze] res.end() called`);
+  }
+}
+
+/** Phase B: takes CourseDocument + params → generates mindmap structure (no PDF) */
+export async function scenarizeCourseFromDocument(
+  params: StructureFromDocParams,
+  res: Response,
+): Promise<void> {
+  const t0 = Date.now();
+  const elapsed = () => `+${((Date.now() - t0) / 1000).toFixed(1)}s`;
+  const client = getClient();
+  initSSE(res);
+  const heartbeat = startHeartbeat(res);
+
+  try {
+    console.log(`[scenarize:structure] START from courseDocument "${params.courseDocument.courseName}"`);
+
+    sendSSE(res, 'progress', {
+      step: 'structure',
+      message: 'Génération de la structure du parcours…',
+    });
+
+    let structureText = '';
+    let firstDelta = true;
+
+    console.log(`[scenarize:structure] ${elapsed()} calling Anthropic API…`);
+    const stream = client.messages.stream({
+      model: MODEL_STRUCTURE,
+      max_tokens: MAX_TOKENS_STRUCTURE_V2,
+      system: buildStructureFromDocPrompt(params),
+      messages: [{
+        role: 'user',
+        content: 'Génère la structure JSON du mindmap Moodle pour ce cours. Retourne UNIQUEMENT le JSON.',
+      }],
+    });
+
+    for await (const event of stream) {
+      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+        if (firstDelta) {
+          console.log(`[scenarize:structure] ${elapsed()} first delta received`);
+          firstDelta = false;
+        }
+        structureText += event.delta.text;
+        sendSSE(res, 'delta', { text: event.delta.text });
+      }
+    }
+
+    console.log(`[scenarize:structure] ${elapsed()} stream complete — ${structureText.length} chars`);
+
+    const finalMsg = await stream.finalMessage();
+    if (finalMsg.stop_reason === 'max_tokens') {
+      sendSSE(res, 'error', {
+        message: 'Structure tronquée. Réduis le nombre de modules et réessaie.',
+      });
+      return;
+    }
+
+    interface StructureSectionJSON {
+      name: string;
+      summary: string;
+      nodes: ScenSkeletonItem[];
+    }
+    interface StructureJSON {
+      sections: StructureSectionJSON[];
+    }
+
+    const jsonText = extractJsonBlock(structureText);
+    let structureJSON: StructureJSON;
+    try {
+      structureJSON = JSON.parse(jsonText) as StructureJSON;
+      if (!structureJSON.sections?.length) throw new Error('Aucune section dans la structure');
+    } catch (e) {
+      const trimmed = jsonText.trimEnd();
+      const isTruncated = trimmed.length > 50 && !trimmed.endsWith('}');
+      console.error('[scenarize:structure] parse error:', (e as Error).message);
+      sendSSE(res, 'error', {
+        message: isTruncated
+          ? 'Structure tronquée. Réduis le nombre de modules et réessaie.'
+          : `Structure JSON invalide : ${(e as Error).message}`,
+      });
+      return;
+    }
+
+    const doc = params.courseDocument;
+    const skeleton: ScenResult = {
+      courseName: doc.courseName,
+      shortname: doc.shortname || doc.courseName.replace(/[^A-Z0-9]/gi, '').slice(0, 10).toUpperCase(),
+      summary: doc.globalDescription,
+      outcomes: doc.outcomes ?? [],
+      competencies: doc.competencies ?? [],
+      sections: structureJSON.sections.map((s) => ({
+        name: s.name,
+        summary: s.summary ?? '',
+        nodes: (s.nodes ?? []).map((item) => {
+          if (item.type === 'branch') {
+            return {
+              ...item,
+              trueNode: { ...item.trueNode, content: undefined, questions: undefined } as ScenNodeEnriched,
+              falseNode: { ...item.falseNode, content: undefined, questions: undefined } as ScenNodeEnriched,
+            } as ScenBranchEnriched;
+          }
+          const node = item as ScenNodeSkeleton;
+          const enriched: ScenNodeEnriched = { ...node };
+          if (node.subtype === 'page') enriched.content = '';
+          else if (node.subtype === 'quiz') enriched.questions = [];
+          return enriched;
+        }),
+      })),
+    };
+
+    const sectionContexts = new Map<number, string>();
+    doc.sections.forEach((s, idx) => {
+      sectionContexts.set(idx, s.contentSummary ?? '');
+    });
+
+    sendSSE(res, 'progress', { step: 'converting', message: 'Conversion en mindmap…' });
+    const { nodes, edges, meta } = scenarizationToMindmap(skeleton, sectionContexts);
+
+    const donePayload = JSON.stringify({ nodes, edges, meta });
+    console.log(`[scenarize:structure] ${elapsed()} sending done — payload ${Math.round(donePayload.length / 1000)}KB`);
+    sendSSE(res, 'done', { nodes, edges, meta });
+
+  } catch (err) {
+    console.error(`[scenarize:structure] ${elapsed()} ERROR:`, (err as Error).message);
+    sendSSE(res, 'error', { message: (err as Error).message });
+  } finally {
+    clearInterval(heartbeat);
+    res.end();
+    console.log(`[scenarize:structure] res.end() called`);
+  }
+}
 
 /** Phase 1: single Sonnet call — reads PDFs + generates JSON structure in one pass */
 export async function scenarizeCourseStructure(

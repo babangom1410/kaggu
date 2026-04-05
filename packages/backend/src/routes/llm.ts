@@ -11,7 +11,7 @@ import {
   generateLessonPages,
   generateBookChapters,
 } from '../services/llm.service';
-import { scenarizeCourse, scenarizeCourseStructure, scenarizeContent } from '../services/scenarize.service';
+import { scenarizeCourse, scenarizeCourseStructure, scenarizeContent, analyzeDocument, scenarizeCourseFromDocument, type CourseDocument } from '../services/scenarize.service';
 
 const router = Router();
 
@@ -183,6 +183,32 @@ router.post('/generate-feedback', async (req, res) => {
   }
 });
 
+// POST /api/v1/llm/scenarize/analyze — Phase A: PDF → CourseDocument (SSE)
+router.post(
+  '/scenarize/analyze',
+  express.json({ limit: '20mb' }),
+  async (req, res) => {
+    req.socket.setTimeout(0);
+    const MAX_PDF_BASE64_CHARS = 8 * 1024 * 1024;
+    const fileSchema = z.object({
+      name:    z.string().min(1),
+      type:    z.enum(['pdf', 'markdown', 'text']),
+      content: z.string().min(1).max(MAX_PDF_BASE64_CHARS, 'Fichier trop volumineux (max ~6 MB par PDF)'),
+    });
+    const schema = z.object({
+      files:             z.array(fileSchema).max(10).default([]),
+      level:             z.string().min(1).max(100),
+      duration:          z.string().min(1).max(100),
+      moduleCount:       z.number().int().min(1).max(20).default(4),
+      language:          z.string().min(2).max(50).default('Français'),
+      additionalContext: z.string().max(1000).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
+    await analyzeDocument(parsed.data, res);
+  },
+);
+
 // POST /api/v1/llm/scenarize — generate full course mindmap from files + params (SSE)
 router.post(
   '/scenarize',
@@ -214,22 +240,27 @@ router.post(
   },
 );
 
-// POST /api/v1/llm/scenarize/structure — Phase 1 only: PDF → structure skeleton → mindmap (SSE)
+// POST /api/v1/llm/scenarize/structure — Phase B: CourseDocument → mindmap structure (SSE)
 router.post(
   '/scenarize/structure',
-  express.json({ limit: '20mb' }),
+  express.json({ limit: '1mb' }),
   async (req, res) => {
-    // Disable socket timeout — this SSE route can take 20-40s
     req.socket.setTimeout(0);
-    const MAX_PDF_BASE64_CHARS = 8 * 1024 * 1024;
-    const fileSchema = z.object({
-      name:    z.string().min(1),
-      type:    z.enum(['pdf', 'markdown', 'text']),
-      content: z.string().min(1).max(MAX_PDF_BASE64_CHARS, 'Fichier trop volumineux (max ~6 MB par PDF)'),
-    });
 
+    const sectionSchema = z.object({
+      name:           z.string().min(1),
+      contentSummary: z.string().default(''),
+    });
+    const courseDocSchema = z.object({
+      courseName:        z.string().min(1),
+      shortname:         z.string().max(10).default(''),
+      globalDescription: z.string().default(''),
+      outcomes:          z.array(z.string()).default([]),
+      competencies:      z.array(z.string()).default([]),
+      sections:          z.array(sectionSchema).min(1).max(20),
+    });
     const schema = z.object({
-      files:             z.array(fileSchema).max(10).default([]),
+      courseDocument:    courseDocSchema,
       level:             z.string().min(1).max(100),
       duration:          z.string().min(1).max(100),
       moduleCount:       z.number().int().min(1).max(20).default(4),
@@ -238,12 +269,9 @@ router.post(
     });
 
     const parsed = schema.safeParse(req.body);
-    if (!parsed.success) {
-      res.status(400).json({ error: parsed.error.message });
-      return;
-    }
+    if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
 
-    await scenarizeCourseStructure(parsed.data, res);
+    await scenarizeCourseFromDocument(parsed.data as Parameters<typeof scenarizeCourseFromDocument>[0], res);
   },
 );
 

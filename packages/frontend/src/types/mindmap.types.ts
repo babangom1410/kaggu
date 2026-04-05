@@ -14,6 +14,12 @@ export interface CourseNodeData {
   visible: boolean;
   category: number;
   collapsed?: boolean;
+  courseDocument?: {
+    globalDescription: string;
+    outcomes: string[];
+    competencies: string[];
+    sections: { name: string; contentSummary: string }[];
+  };
 }
 
 // --- Section node ---

@@ -154,11 +154,42 @@ export interface ScenarizationParams {
   additionalContext?: string;
 }
 
+export interface CourseDocumentSection {
+  name: string;
+  contentSummary: string;
+}
+
+export interface CourseDocument {
+  courseName: string;
+  shortname: string;
+  globalDescription: string;
+  outcomes: string[];
+  competencies: string[];
+  sections: CourseDocumentSection[];
+}
+
+export interface StructureFromDocParams {
+  courseDocument: CourseDocument;
+  level: string;
+  duration: string;
+  moduleCount: number;
+  language: string;
+  additionalContext?: string;
+}
+
 export function scenarizeCourse(params: ScenarizationParams, onEvent: SSECallback, signal?: AbortSignal) {
   return streamPost('/api/v1/llm/scenarize', params, onEvent, signal);
 }
 
 export function scenarizeCourseStructure(params: ScenarizationParams, onEvent: SSECallback, signal?: AbortSignal) {
+  return streamPost('/api/v1/llm/scenarize/structure', params, onEvent, signal);
+}
+
+export function analyzeDocument(params: ScenarizationParams, onEvent: SSECallback, signal?: AbortSignal) {
+  return streamPost('/api/v1/llm/scenarize/analyze', params, onEvent, signal);
+}
+
+export function scenarizeFromDocument(params: StructureFromDocParams, onEvent: SSECallback, signal?: AbortSignal) {
   return streamPost('/api/v1/llm/scenarize/structure', params, onEvent, signal);
 }
 
