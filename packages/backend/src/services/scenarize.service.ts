@@ -554,6 +554,7 @@ function createNode(
 function scenarizationToMindmap(
   result: ScenResult,
   sectionContexts: Map<number, string>,
+  courseDocument?: CourseDocument,
 ): {
   nodes: MindmapNodeShape[];
   edges: MindmapEdgeShape[];
@@ -574,6 +575,7 @@ function scenarizationToMindmap(
       format: 'topics',
       visible: true,
       category: 1,
+      ...(courseDocument ? { courseDocument } : {}),
     },
   });
 
@@ -852,7 +854,7 @@ export async function scenarizeCourseFromDocument(
     });
 
     sendSSE(res, 'progress', { step: 'converting', message: 'Conversion en mindmap…' });
-    const { nodes, edges, meta } = scenarizationToMindmap(skeleton, sectionContexts);
+    const { nodes, edges, meta } = scenarizationToMindmap(skeleton, sectionContexts, params.courseDocument);
 
     const donePayload = JSON.stringify({ nodes, edges, meta });
     console.log(`[scenarize:structure] ${elapsed()} sending done — payload ${Math.round(donePayload.length / 1000)}KB`);
