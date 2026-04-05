@@ -304,6 +304,22 @@ function PreviewView({
 
 function buildContentTasks(nodes: MindmapNode[], edges: MindmapEdge[]): ContentTaskParams[] {
   const tasks: ContentTaskParams[] = [];
+
+  function addIfPageOrQuiz(node: MindmapNode, ctx: string) {
+    const d = node.data as unknown as Record<string, unknown>;
+    const subtype = d.subtype as string;
+    if (subtype === 'page' || subtype === 'quiz') {
+      tasks.push({
+        nodeId: node.id,
+        subtype: subtype as 'page' | 'quiz',
+        name: (d.name as string) ?? '',
+        description: (d.description as string) ?? '',
+        contentContext: ctx,
+        questionCount: d.questionCount as number | undefined,
+      });
+    }
+  }
+
   const sectionNodes = nodes.filter(n => n.type === 'section');
   for (const sec of sectionNodes) {
     const secData = sec.data as unknown as { contentContext?: string };
@@ -312,17 +328,15 @@ function buildContentTasks(nodes: MindmapNode[], edges: MindmapEdge[]): ContentT
     for (const childId of childIds) {
       const child = nodes.find(n => n.id === childId);
       if (!child) continue;
-      const d = child.data as unknown as Record<string, unknown>;
-      const subtype = d.subtype as string;
-      if (subtype === 'page' || subtype === 'quiz') {
-        tasks.push({
-          nodeId: child.id,
-          subtype: subtype as 'page' | 'quiz',
-          name: (d.name as string) ?? '',
-          description: (d.description as string) ?? '',
-          contentContext: ctx,
-          questionCount: d.questionCount as number | undefined,
-        });
+      if (child.type === 'branch') {
+        // BranchNode: collect trueNode/falseNode children too
+        const branchChildIds = edges.filter(e => e.source === child.id).map(e => e.target);
+        for (const bcId of branchChildIds) {
+          const bc = nodes.find(n => n.id === bcId);
+          if (bc) addIfPageOrQuiz(bc, ctx);
+        }
+      } else {
+        addIfPageOrQuiz(child, ctx);
       }
     }
   }
@@ -355,10 +369,11 @@ export function ScenarizationModal({ onClose }: Props) {
   // Phase 2 — content generation state
   const [contentFiles, setContentFiles] = useState<ScenarizationFile[]>([]);
   const [contentAdditionalText, setContentAdditionalText] = useState('');
-  const [contentProgress, setContentProgress] = useState({ done: 0, total: 0, currentName: '' });
+  const [contentProgress, setContentProgress] = useState({ done: 0, total: 0 });
   const [contentTasks, setContentTasks] = useState<ContentTaskParams[]>([]);
   const [selectedNodeIds, setSelectedNodeIds] = useState<Set<string>>(new Set());
-  const [nodeStreamText, setNodeStreamText] = useState('');
+  // Map of nodeId → name for nodes currently being generated (concurrent)
+  const [activeNodes, setActiveNodes] = useState<Map<string, string>>(new Map());
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -483,8 +498,8 @@ export function ScenarizationModal({ onClose }: Props) {
 
     setStep('content_generating');
     setError('');
-    setNodeStreamText('');
-    setContentProgress({ done: 0, total: tasks.length, currentName: '' });
+    setActiveNodes(new Map());
+    setContentProgress({ done: 0, total: tasks.length });
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -496,19 +511,19 @@ export function ScenarizationModal({ onClose }: Props) {
         (event, data) => {
           const d = data as Record<string, unknown>;
           if (event === 'node_start') {
-            setNodeStreamText('');
-            setContentProgress(prev => ({ ...prev, currentName: (d.name as string) ?? '' }));
-          } else if (event === 'node_delta') {
-            setNodeStreamText(prev => prev + ((d.text as string) ?? ''));
+            const nodeId = d.nodeId as string;
+            const name = (d.name as string) ?? '';
+            setActiveNodes(prev => new Map(prev).set(nodeId, name));
           } else if (event === 'node_done') {
             const nodeId = d.nodeId as string;
             if (d.content !== undefined) updateNode(nodeId, { content: d.content as string });
             if (d.questions !== undefined) updateNode(nodeId, { questions: d.questions as QuizQuestion[] });
-            setContentProgress({ done: (d.index as number) ?? 0, total: (d.total as number) ?? tasks.length, currentName: (d.name as string) ?? '' });
-            setNodeStreamText('');
+            setActiveNodes(prev => { const m = new Map(prev); m.delete(nodeId); return m; });
+            setContentProgress(prev => ({ ...prev, done: prev.done + 1 }));
           } else if (event === 'node_error') {
-            // non-fatal: continue, just log in progress
-            setContentProgress(prev => ({ ...prev, currentName: `⚠ ${(d.name as string) ?? ''} — erreur` }));
+            const nodeId = d.nodeId as string;
+            setActiveNodes(prev => { const m = new Map(prev); m.delete(nodeId); return m; });
+            setContentProgress(prev => ({ ...prev, done: prev.done + 1 }));
           } else if (event === 'done') {
             setStep('content_done');
           } else if (event === 'error') {
@@ -788,11 +803,11 @@ export function ScenarizationModal({ onClose }: Props) {
               {/* Files */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-slate-300">
-                  Documents sources <span className="text-slate-500 font-normal">(optionnel — enrichit le contenu)</span>
+                  Documents sources <span className="text-slate-500 font-normal">(optionnel — max 3 fichiers)</span>
                 </label>
                 <FileDropZone
                   files={contentFiles}
-                  onAdd={(f) => setContentFiles(prev => [...prev, ...f])}
+                  onAdd={(f) => setContentFiles(prev => [...prev, ...f].slice(0, 3))}
                   onRemove={(idx) => setContentFiles(prev => prev.filter((_, i) => i !== idx))}
                 />
               </div>
@@ -837,13 +852,16 @@ export function ScenarizationModal({ onClose }: Props) {
                 <span className="w-4 h-4 border-2 border-indigo-500/40 border-t-indigo-400 rounded-full animate-spin flex-shrink-0" />
                 <div className="min-w-0">
                   <div className="text-xs text-indigo-400 font-medium uppercase tracking-wide">Génération des contenus</div>
-                  <div className="truncate text-sm">{contentProgress.currentName || 'En cours…'}</div>
+                  <div className="text-sm text-slate-400">
+                    {contentProgress.done} / {contentProgress.total} nœuds terminés
+                  </div>
                 </div>
               </div>
+
               {contentProgress.total > 0 && (
                 <div className="space-y-1.5">
                   <div className="flex justify-between text-xs text-slate-500">
-                    <span>{contentProgress.done} / {contentProgress.total} nœuds</span>
+                    <span>{contentProgress.done} / {contentProgress.total}</span>
                     <span>{Math.round((contentProgress.done / contentProgress.total) * 100)}%</span>
                   </div>
                   <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
@@ -854,15 +872,19 @@ export function ScenarizationModal({ onClose }: Props) {
                   </div>
                 </div>
               )}
-              {nodeStreamText && (
-                <div className="bg-slate-800/80 rounded-lg p-3 max-h-36 overflow-y-auto">
-                  <div className="text-xs text-slate-500 mb-1">Génération en cours…</div>
-                  <div className="text-xs text-slate-400 font-mono whitespace-pre-wrap leading-relaxed">
-                    {nodeStreamText.slice(-700)}
-                    <span className="inline-block w-1.5 h-3 bg-indigo-400 animate-pulse ml-0.5" />
-                  </div>
+
+              {activeNodes.size > 0 && (
+                <div className="bg-slate-800/50 border border-slate-700/50 rounded-xl p-3 space-y-1.5">
+                  <div className="text-xs text-slate-500 mb-0.5">En cours ({activeNodes.size} en parallèle)</div>
+                  {Array.from(activeNodes.entries()).map(([nodeId, name]) => (
+                    <div key={nodeId} className="flex items-center gap-2 text-xs text-slate-400">
+                      <span className="w-2.5 h-2.5 border border-indigo-500/40 border-t-indigo-400 rounded-full animate-spin flex-shrink-0" />
+                      <span className="truncate">{name}</span>
+                    </div>
+                  ))}
                 </div>
               )}
+
               <button onClick={handleCancel} className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
                 Annuler
               </button>

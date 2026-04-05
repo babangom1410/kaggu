@@ -17,8 +17,8 @@ const MAX_TOKENS_STRUCTURE_V2 = 1_500;
 const SECTION_CALL_TIMEOUT_MS = 60_000;
 // Timeout for Phase A full document analysis (PDF can be slow)
 const ANALYZE_TIMEOUT_MS = 120_000;
-// Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
-const MAX_TOKENS_CONTENT = 8_192;
+// Step 2: HTML pages + quiz JSON per node — 3500 tokens ≈ 60s at Sonnet speed, well within timeout
+const MAX_TOKENS_CONTENT = 3_500;
 // Max concurrent content-generation calls
 const CONCURRENCY = 4;
 // Max chars per text/markdown file before truncation (~7500 tokens)
@@ -27,8 +27,8 @@ const MAX_TEXT_FILE_CHARS = 30_000;
 const MAX_CONTEXT_WORDS = 120;
 // Hard cap on questions per quiz regardless of what Phase 1 returns
 const MAX_QUESTIONS_PER_QUIZ = 8;
-// Per-task API timeout (ms) — prevents a hung call from blocking the pool indefinitely
-const CONTENT_TASK_TIMEOUT_MS = 90_000;
+// Per-task API timeout (ms) — 3500 tokens × ~17ms ≈ 60s + generous buffer
+const CONTENT_TASK_TIMEOUT_MS = 120_000;
 
 function getClient(): Anthropic {
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -551,7 +551,7 @@ Format : ${QUIZ_SCHEMA}`,
   } catch (e) {
     console.error(`[scenarize:quiz] "${name}" parse error: ${(e as Error).message}`);
     console.error(`[scenarize:quiz] raw tail: ${raw.slice(-300)}`);
-    return [];
+    throw new Error(`Questions JSON invalide : ${(e as Error).message}`);
   }
 }
 
@@ -1095,7 +1095,7 @@ export async function scenarizeCourseStructure(
 /** Backward-compatible alias */
 export const scenarizeCourse = scenarizeCourseStructure;
 
-/** Phase 2: Generate HTML + quiz questions — sequential with streaming delta per node */
+/** Phase 2: Generate HTML + quiz questions — concurrent (CONCURRENCY=4) with per-node streaming */
 export async function scenarizeContent(
   params: ContentGenerationParams,
   res: Response,
@@ -1106,23 +1106,22 @@ export async function scenarizeContent(
 
   try {
     const total = params.tasks.length;
-    console.log(`[scenarize:content] START ${total} tasks, files=${params.files?.length ?? 0}`);
+    console.log(`[scenarize:content] START ${total} tasks, files=${params.files?.length ?? 0}, concurrency=${CONCURRENCY}`);
 
-    sendSSE(res, 'progress', { step: 'content', message: `Génération du contenu (${total} nœuds)…`, total, done: 0 });
+    sendSSE(res, 'progress', { step: 'content', message: `Génération du contenu (${total} nœuds, ${CONCURRENCY} en parallèle)…`, total, done: 0 });
 
-    for (let i = 0; i < params.tasks.length; i++) {
-      const task = params.tasks[i];
+    const taskFns = params.tasks.map((task, i) => async () => {
       const context = truncateToWords(task.contentContext || '', MAX_CONTEXT_WORDS);
 
-      console.log(`[scenarize:content] ${i + 1}/${total} "${task.name}" (${task.subtype})`);
+      console.log(`[scenarize:content] ${i + 1}/${total} "${task.name}" (${task.subtype}) — START`);
       sendSSE(res, 'node_start', { nodeId: task.nodeId, name: task.name, subtype: task.subtype, index: i + 1, total });
 
       const onDelta = (text: string) => sendSSE(res, 'node_delta', { nodeId: task.nodeId, text });
 
-      let content: string | undefined;
-      let questions: unknown[] | undefined;
-
       try {
+        let content: string | undefined;
+        let questions: unknown[] | undefined;
+
         if (task.subtype === 'page') {
           content = await withTimeout(
             generatePageHtml(client, task.name, task.description, context, params.language, params.files, params.additionalText, onDelta),
@@ -1137,14 +1136,18 @@ export async function scenarizeContent(
             `quiz "${task.name}"`,
           );
         }
+
+        console.log(`[scenarize:content] ${i + 1}/${total} "${task.name}" — DONE`);
+        sendSSE(res, 'node_done', { nodeId: task.nodeId, name: task.name, type: task.subtype, content, questions, index: i + 1, total });
+        return { nodeId: task.nodeId };
       } catch (err) {
         console.error(`[scenarize:content] "${task.name}" failed:`, (err as Error).message);
         sendSSE(res, 'node_error', { nodeId: task.nodeId, name: task.name, message: (err as Error).message });
-        continue; // keep processing remaining tasks
+        throw err; // withConcurrency catches it, marks task as null, continues
       }
+    });
 
-      sendSSE(res, 'node_done', { nodeId: task.nodeId, name: task.name, type: task.subtype, content, questions, index: i + 1, total });
-    }
+    await withConcurrency(taskFns, CONCURRENCY);
 
     console.log(`[scenarize:content] all ${total} tasks complete`);
     sendSSE(res, 'done', { total });

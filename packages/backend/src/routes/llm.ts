@@ -299,7 +299,7 @@ router.post(
     const schema = z.object({
       tasks:          z.array(taskSchema).min(1).max(100),
       language:       z.string().min(2).max(50).default('Français'),
-      files:          z.array(fileSchema).max(5).default([]),
+      files:          z.array(fileSchema).max(3).default([]),  // max 3 PDFs — each ~50k tokens, 3×50k = 150k < 200k context limit
       additionalText: z.string().max(3000).optional(),
     });
 
