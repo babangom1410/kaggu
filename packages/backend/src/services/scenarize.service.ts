@@ -11,8 +11,10 @@ const MODEL_CONTENT = 'claude-sonnet-4-6';
 const MAX_TOKENS_STRUCTURE = 4_000;
 // Phase A: analyze document → CourseDocument
 const MAX_TOKENS_ANALYZE = 2_500;
-// Phase B v2: generate structure from CourseDocument (no PDF) — 5k to support 6-8 modules
-const MAX_TOKENS_STRUCTURE_V2 = 5_000;
+// Phase B v2: per-batch token budget — 3 sections/batch ≈ 1500 tokens, well under 30s
+const MAX_TOKENS_STRUCTURE_V2 = 2_000;
+// Max sections per API call — keeps each call under 20s regardless of total module count
+const SECTIONS_PER_BATCH = 3;
 // Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
 const MAX_TOKENS_CONTENT = 8_192;
 // Max concurrent content-generation calls
@@ -371,52 +373,50 @@ RÈGLES STRICTES :
 - "competencies" : 2 à 4 compétences pratiques`;
 }
 
-function buildStructureFromDocPrompt(params: StructureFromDocParams): string {
+interface StructureSectionJSON {
+  name: string;
+  summary: string;
+  nodes: ScenSkeletonItem[];
+}
+
+function buildBatchPrompt(
+  params: StructureFromDocParams,
+  batchSections: CourseDocumentSection[],
+  batchOffset: number,
+): string {
   const doc = params.courseDocument;
-  const sectionsText = doc.sections
-    .map((s, i) => `Module ${i + 1} — ${s.name} :\n${s.contentSummary}`)
+  const sectionsText = batchSections
+    .map((s, i) => `Module ${batchOffset + i + 1} — ${s.name} :\n${s.contentSummary}`)
     .join('\n\n');
 
   return `Tu es un ingénieur pédagogique expert qui conçoit des formations Moodle.
 
-DOCUMENT DU COURS :
-Titre : ${doc.courseName}
-Description : ${doc.globalDescription}
-Résultats attendus : ${doc.outcomes.join(' | ')}
+COURS : ${doc.courseName} | Niveau : ${params.level} | Durée : ${params.duration} | Langue : ${params.language}
+${params.additionalContext ? `Instructions : ${params.additionalContext}` : ''}
 
-CONTENU PAR MODULE :
+MODULES À STRUCTURER (${batchSections.length} sections) :
 ${sectionsText}
 
-PARAMÈTRES :
-- Niveau : ${params.level}
-- Durée : ${params.duration}
-- Langue de sortie : ${params.language}
-${params.additionalContext ? `- Instructions : ${params.additionalContext}` : ''}
-
-Génère UNIQUEMENT ce JSON de structure Moodle :
-
+Génère UNIQUEMENT ce JSON (exactement ${batchSections.length} sections) :
 {
   "sections": [
     {
-      "name": "Module 1 : Titre",
+      "name": "Module ${batchOffset + 1} : Titre exact",
       "summary": "1 phrase.",
       "nodes": [
-        { "type": "resource", "subtype": "page", "name": "Titre de la page", "description": "1 phrase.", "completion": 1 },
-        { "type": "activity", "subtype": "quiz", "name": "Quiz : Titre", "description": "1 phrase.", "questionCount": 4, "completion": 2 },
-        { "type": "activity", "subtype": "assign", "name": "Devoir : Titre", "description": "2 phrases max : tâche + livrable.", "maxgrade": 20, "submissiontype": "online_text", "completion": 2 },
-        { "type": "activity", "subtype": "forum", "name": "Discussion : Titre", "description": "1 phrase.", "completion": 1 }
+        { "type": "resource", "subtype": "page", "name": "Titre", "description": "1 phrase max 20 mots.", "completion": 1 },
+        { "type": "activity", "subtype": "quiz", "name": "Quiz : Titre", "description": "1 phrase max 20 mots.", "questionCount": 4, "completion": 2 }
       ]
     }
   ]
 }
 
-RÈGLES STRICTES :
-- Exactement ${params.moduleCount} sections, dans le même ordre que les modules ci-dessus
-- Toutes les descriptions : MAX 1 phrase, MAX 20 mots — sois ultra-concis
-- "questionCount" : entre 3 et ${MAX_QUESTIONS_PER_QUIZ} — JAMAIS plus
-- Pas de champ "content" ni "questions"
+RÈGLES :
+- Exactement ${batchSections.length} sections dans cet ordre
+- Descriptions : MAX 1 phrase, MAX 20 mots
+- "questionCount" : entre 3 et ${MAX_QUESTIONS_PER_QUIZ}
 - Activités : quiz, assign, forum | Ressources : page, url
-- BranchNode uniquement si explicitement demandé dans les instructions`;
+- Pas de "content" ni "questions"`;
 }
 
 // ─── Step 2: content generation helpers ───────────────────────────────────────
@@ -753,82 +753,92 @@ export async function scenarizeCourseFromDocument(
   const heartbeat = startHeartbeat(res);
 
   try {
-    console.log(`[scenarize:structure] START from courseDocument "${params.courseDocument.courseName}"`);
+    const doc = params.courseDocument;
+    const allSections = doc.sections;
+    const totalBatches = Math.ceil(allSections.length / SECTIONS_PER_BATCH);
+
+    console.log(`[scenarize:structure] START "${doc.courseName}" — ${allSections.length} sections, ${totalBatches} batch(es)`);
 
     sendSSE(res, 'progress', {
       step: 'structure',
-      message: 'Génération de la structure du parcours…',
+      message: `Génération de la structure (0 / ${allSections.length} modules)…`,
     });
 
-    let structureText = '';
-    let firstDelta = true;
+    const allStructureSections: StructureSectionJSON[] = [];
 
-    console.log(`[scenarize:structure] ${elapsed()} calling Anthropic API…`);
-    const stream = client.messages.stream({
-      model: MODEL_STRUCTURE,
-      max_tokens: MAX_TOKENS_STRUCTURE_V2,
-      system: buildStructureFromDocPrompt(params),
-      messages: [{
-        role: 'user',
-        content: 'Génère la structure JSON du mindmap Moodle pour ce cours. Retourne UNIQUEMENT le JSON.',
-      }],
-    });
+    // ── do-while style: process batches until all sections are generated ──────
+    let batchIdx = 0;
+    do {
+      const offset = batchIdx * SECTIONS_PER_BATCH;
+      const batchSections = allSections.slice(offset, offset + SECTIONS_PER_BATCH);
 
-    for await (const event of stream) {
-      if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-        if (firstDelta) {
-          console.log(`[scenarize:structure] ${elapsed()} first delta received`);
-          firstDelta = false;
+      sendSSE(res, 'progress', {
+        step: 'structure',
+        message: `Modules ${offset + 1}–${offset + batchSections.length} / ${allSections.length}…`,
+      });
+
+      console.log(`[scenarize:structure] ${elapsed()} batch ${batchIdx + 1}/${totalBatches} — sections ${offset + 1}–${offset + batchSections.length}`);
+
+      let batchText = '';
+      let firstDelta = true;
+
+      const stream = client.messages.stream({
+        model: MODEL_STRUCTURE,
+        max_tokens: MAX_TOKENS_STRUCTURE_V2,
+        system: buildBatchPrompt(params, batchSections, offset),
+        messages: [{
+          role: 'user',
+          content: 'Génère la structure JSON. Retourne UNIQUEMENT le JSON.',
+        }],
+      });
+
+      for await (const event of stream) {
+        if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+          if (firstDelta) {
+            console.log(`[scenarize:structure] ${elapsed()} batch ${batchIdx + 1} first delta`);
+            firstDelta = false;
+          }
+          batchText += event.delta.text;
+          sendSSE(res, 'delta', { text: event.delta.text });
         }
-        structureText += event.delta.text;
-        sendSSE(res, 'delta', { text: event.delta.text });
       }
-    }
 
-    console.log(`[scenarize:structure] ${elapsed()} stream complete — ${structureText.length} chars`);
+      console.log(`[scenarize:structure] ${elapsed()} batch ${batchIdx + 1} complete — ${batchText.length} chars`);
 
-    const finalMsg = await stream.finalMessage();
-    if (finalMsg.stop_reason === 'max_tokens') {
-      sendSSE(res, 'error', {
-        message: 'Structure tronquée. Réduis le nombre de modules et réessaie.',
-      });
-      return;
-    }
+      const finalMsg = await stream.finalMessage();
+      if (finalMsg.stop_reason === 'max_tokens') {
+        sendSSE(res, 'error', {
+          message: `Lot ${batchIdx + 1} tronqué (${batchSections.length} sections, ${MAX_TOKENS_STRUCTURE_V2} tokens max). Contacte le support.`,
+        });
+        return;
+      }
 
-    interface StructureSectionJSON {
-      name: string;
-      summary: string;
-      nodes: ScenSkeletonItem[];
-    }
-    interface StructureJSON {
-      sections: StructureSectionJSON[];
-    }
+      interface BatchJSON { sections: StructureSectionJSON[] }
+      const jsonText = extractJsonBlock(batchText);
+      let batchJSON: BatchJSON;
+      try {
+        batchJSON = JSON.parse(jsonText) as BatchJSON;
+        if (!batchJSON.sections?.length) throw new Error('Aucune section dans le lot');
+      } catch (e) {
+        console.error(`[scenarize:structure] batch ${batchIdx + 1} parse error:`, (e as Error).message);
+        sendSSE(res, 'error', {
+          message: `Lot ${batchIdx + 1} invalide : ${(e as Error).message}`,
+        });
+        return;
+      }
 
-    const jsonText = extractJsonBlock(structureText);
-    let structureJSON: StructureJSON;
-    try {
-      structureJSON = JSON.parse(jsonText) as StructureJSON;
-      if (!structureJSON.sections?.length) throw new Error('Aucune section dans la structure');
-    } catch (e) {
-      const trimmed = jsonText.trimEnd();
-      const isTruncated = trimmed.length > 50 && !trimmed.endsWith('}');
-      console.error('[scenarize:structure] parse error:', (e as Error).message);
-      sendSSE(res, 'error', {
-        message: isTruncated
-          ? 'Structure tronquée. Réduis le nombre de modules et réessaie.'
-          : `Structure JSON invalide : ${(e as Error).message}`,
-      });
-      return;
-    }
+      allStructureSections.push(...batchJSON.sections);
+      batchIdx++;
+    } while (batchIdx < totalBatches);
 
-    const doc = params.courseDocument;
+    // ── Build skeleton from all collected sections ────────────────────────────
     const skeleton: ScenResult = {
       courseName: doc.courseName,
       shortname: doc.shortname || doc.courseName.replace(/[^A-Z0-9]/gi, '').slice(0, 10).toUpperCase(),
       summary: doc.globalDescription,
       outcomes: doc.outcomes ?? [],
       competencies: doc.competencies ?? [],
-      sections: structureJSON.sections.map((s) => ({
+      sections: allStructureSections.map((s) => ({
         name: s.name,
         summary: s.summary ?? '',
         nodes: (s.nodes ?? []).map((item) => {
@@ -857,7 +867,7 @@ export async function scenarizeCourseFromDocument(
     const { nodes, edges, meta } = scenarizationToMindmap(skeleton, sectionContexts, params.courseDocument);
 
     const donePayload = JSON.stringify({ nodes, edges, meta });
-    console.log(`[scenarize:structure] ${elapsed()} sending done — payload ${Math.round(donePayload.length / 1000)}KB`);
+    console.log(`[scenarize:structure] ${elapsed()} done — ${allStructureSections.length} sections, payload ${Math.round(donePayload.length / 1000)}KB`);
     sendSSE(res, 'done', { nodes, edges, meta });
 
   } catch (err) {
