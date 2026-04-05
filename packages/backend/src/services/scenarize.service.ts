@@ -11,10 +11,8 @@ const MODEL_CONTENT = 'claude-sonnet-4-6';
 const MAX_TOKENS_STRUCTURE = 4_000;
 // Phase A: analyze document → CourseDocument
 const MAX_TOKENS_ANALYZE = 2_500;
-// Phase B v2: per-batch token budget — 2 sections/batch ≈ 800-1200 tokens, well under 30s
-const MAX_TOKENS_STRUCTURE_V2 = 3_000;
-// Max sections per API call — keeps each call under 25s regardless of total module count
-const SECTIONS_PER_BATCH = 2;
+// Phase B v2: one section per call — ~400-600 tokens, ~10-15s, zero truncation risk
+const MAX_TOKENS_STRUCTURE_V2 = 1_500;
 // Step 2: HTML pages + quiz JSON per node (claude-sonnet-4-6 max = 16 000)
 const MAX_TOKENS_CONTENT = 8_192;
 // Max concurrent content-generation calls
@@ -379,29 +377,26 @@ interface StructureSectionJSON {
   nodes: ScenSkeletonItem[];
 }
 
-function buildBatchPrompt(
+function buildSectionPrompt(
   params: StructureFromDocParams,
-  batchSections: CourseDocumentSection[],
-  batchOffset: number,
+  section: CourseDocumentSection,
+  sectionIndex: number,
 ): string {
   const doc = params.courseDocument;
-  const sectionsText = batchSections
-    .map((s, i) => `Module ${batchOffset + i + 1} — ${s.name} :\n${s.contentSummary}`)
-    .join('\n\n');
-
   return `Tu es un ingénieur pédagogique expert qui conçoit des formations Moodle.
 
 COURS : ${doc.courseName} | Niveau : ${params.level} | Durée : ${params.duration} | Langue : ${params.language}
 ${params.additionalContext ? `Instructions : ${params.additionalContext}` : ''}
 
-MODULES À STRUCTURER (${batchSections.length} sections) :
-${sectionsText}
+MODULE À STRUCTURER :
+Module ${sectionIndex + 1} — ${section.name} :
+${section.contentSummary}
 
-Génère UNIQUEMENT ce JSON (exactement ${batchSections.length} sections) :
+Génère UNIQUEMENT ce JSON (1 section) :
 {
   "sections": [
     {
-      "name": "Module ${batchOffset + 1} : Titre exact",
+      "name": "Module ${sectionIndex + 1} : ${section.name}",
       "summary": "1 phrase.",
       "nodes": [
         { "type": "resource", "subtype": "page", "name": "Titre", "description": "1 phrase max 20 mots.", "completion": 1 },
@@ -412,7 +407,7 @@ Génère UNIQUEMENT ce JSON (exactement ${batchSections.length} sections) :
 }
 
 RÈGLES :
-- Exactement ${batchSections.length} sections dans cet ordre
+- Exactement 1 section
 - Descriptions : MAX 1 phrase, MAX 20 mots
 - "questionCount" : entre 3 et ${MAX_QUESTIONS_PER_QUIZ}
 - Activités : quiz, assign, forum | Ressources : page, url
@@ -755,9 +750,8 @@ export async function scenarizeCourseFromDocument(
   try {
     const doc = params.courseDocument;
     const allSections = doc.sections;
-    const totalBatches = Math.ceil(allSections.length / SECTIONS_PER_BATCH);
 
-    console.log(`[scenarize:structure] START "${doc.courseName}" — ${allSections.length} sections, ${totalBatches} batch(es)`);
+    console.log(`[scenarize:structure] START "${doc.courseName}" — ${allSections.length} sections, 1 call/section`);
 
     sendSSE(res, 'progress', {
       step: 'structure',
@@ -766,26 +760,23 @@ export async function scenarizeCourseFromDocument(
 
     const allStructureSections: StructureSectionJSON[] = [];
 
-    // ── do-while style: process batches until all sections are generated ──────
-    let batchIdx = 0;
-    do {
-      const offset = batchIdx * SECTIONS_PER_BATCH;
-      const batchSections = allSections.slice(offset, offset + SECTIONS_PER_BATCH);
+    // ── one call per section — guaranteed small output, zero truncation risk ──
+    for (let i = 0; i < allSections.length; i++) {
+      const section = allSections[i];
 
       sendSSE(res, 'progress', {
         step: 'structure',
-        message: `Modules ${offset + 1}–${offset + batchSections.length} / ${allSections.length}…`,
+        message: `Module ${i + 1} / ${allSections.length} — ${section.name}`,
       });
 
-      console.log(`[scenarize:structure] ${elapsed()} batch ${batchIdx + 1}/${totalBatches} — sections ${offset + 1}–${offset + batchSections.length}`);
+      console.log(`[scenarize:structure] ${elapsed()} section ${i + 1}/${allSections.length} — "${section.name}"`);
 
-      let batchText = '';
-      let firstDelta = true;
+      let sectionText = '';
 
       const stream = client.messages.stream({
         model: MODEL_STRUCTURE,
         max_tokens: MAX_TOKENS_STRUCTURE_V2,
-        system: buildBatchPrompt(params, batchSections, offset),
+        system: buildSectionPrompt(params, section, i),
         messages: [{
           role: 'user',
           content: 'Génère la structure JSON. Retourne UNIQUEMENT le JSON.',
@@ -794,42 +785,37 @@ export async function scenarizeCourseFromDocument(
 
       for await (const event of stream) {
         if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
-          if (firstDelta) {
-            console.log(`[scenarize:structure] ${elapsed()} batch ${batchIdx + 1} first delta`);
-            firstDelta = false;
-          }
-          batchText += event.delta.text;
+          sectionText += event.delta.text;
           sendSSE(res, 'delta', { text: event.delta.text });
         }
       }
 
-      console.log(`[scenarize:structure] ${elapsed()} batch ${batchIdx + 1} complete — ${batchText.length} chars`);
+      console.log(`[scenarize:structure] ${elapsed()} section ${i + 1} complete — ${sectionText.length} chars`);
 
       const finalMsg = await stream.finalMessage();
       if (finalMsg.stop_reason === 'max_tokens') {
         sendSSE(res, 'error', {
-          message: `Lot ${batchIdx + 1} tronqué (${batchSections.length} sections, ${MAX_TOKENS_STRUCTURE_V2} tokens max). Contacte le support.`,
+          message: `Module "${section.name}" tronqué. Contacte le support.`,
         });
         return;
       }
 
-      interface BatchJSON { sections: StructureSectionJSON[] }
-      const jsonText = extractJsonBlock(batchText);
-      let batchJSON: BatchJSON;
+      interface SectionBatchJSON { sections: StructureSectionJSON[] }
+      const jsonText = extractJsonBlock(sectionText);
+      let parsed: SectionBatchJSON;
       try {
-        batchJSON = JSON.parse(jsonText) as BatchJSON;
-        if (!batchJSON.sections?.length) throw new Error('Aucune section dans le lot');
+        parsed = JSON.parse(jsonText) as SectionBatchJSON;
+        if (!parsed.sections?.length) throw new Error('Aucune section dans la réponse');
       } catch (e) {
-        console.error(`[scenarize:structure] batch ${batchIdx + 1} parse error:`, (e as Error).message);
+        console.error(`[scenarize:structure] section ${i + 1} parse error:`, (e as Error).message);
         sendSSE(res, 'error', {
-          message: `Lot ${batchIdx + 1} invalide : ${(e as Error).message}`,
+          message: `Module "${section.name}" invalide : ${(e as Error).message}`,
         });
         return;
       }
 
-      allStructureSections.push(...batchJSON.sections);
-      batchIdx++;
-    } while (batchIdx < totalBatches);
+      allStructureSections.push(parsed.sections[0]);
+    }
 
     // ── Build skeleton from all collected sections ────────────────────────────
     const skeleton: ScenResult = {
