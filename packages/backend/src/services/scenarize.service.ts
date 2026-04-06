@@ -13,8 +13,8 @@ const MAX_TOKENS_STRUCTURE = 4_000;
 const MAX_TOKENS_ANALYZE = 4_000;
 // Phase B v2: one section per call — ~400-600 tokens, ~10-15s, zero truncation risk
 const MAX_TOKENS_STRUCTURE_V2 = 1_500;
-// Timeout per section call in Phase B — prevents hung API calls from blocking forever
-const SECTION_CALL_TIMEOUT_MS = 60_000;
+// Timeout per section call in Phase B — 1500 tokens × ~17ms ≈ 25s normal, 90s covers API peaks/cold starts
+const SECTION_CALL_TIMEOUT_MS = 90_000;
 // Timeout for Phase A full document analysis (PDF can be slow)
 const ANALYZE_TIMEOUT_MS = 120_000;
 // Step 2: HTML pages + quiz JSON per node — 3500 tokens ≈ 60s at Sonnet speed, well within timeout
