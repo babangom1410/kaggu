@@ -201,7 +201,7 @@ router.post(
       duration:          z.string().min(1).max(100),
       moduleCount:       z.number().int().min(1).max(20).default(4),
       language:          z.string().min(2).max(50).default('Français'),
-      additionalContext: z.string().max(1000).optional(),
+      additionalContext: z.string().max(2000).optional(), // raised to 2000 — profile instructions ~400 chars + user text
     });
     const parsed = schema.safeParse(req.body);
     if (!parsed.success) { res.status(400).json({ error: parsed.error.message }); return; }
@@ -265,7 +265,7 @@ router.post(
       duration:          z.string().min(1).max(100),
       moduleCount:       z.number().int().min(1).max(20).default(4),
       language:          z.string().min(2).max(50).default('Français'),
-      additionalContext: z.string().max(1000).optional(),
+      additionalContext: z.string().max(2000).optional(), // raised to 2000 — profile instructions ~400 chars + user text
     });
 
     const parsed = schema.safeParse(req.body);

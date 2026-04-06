@@ -9,6 +9,11 @@ import {
 } from '@/api/llm-api';
 import { useMindmapStore } from '@/stores/mindmap-store';
 import type { MindmapNode, MindmapEdge, QuizQuestion } from '@/types/mindmap.types';
+import {
+  BUILTIN_PROFILES,
+  buildPedagogicalInstructions,
+  type ScenarizationProfile,
+} from '@/data/scenarization-profiles';
 
 interface Props {
   onClose: () => void;
@@ -343,6 +348,98 @@ function buildContentTasks(nodes: MindmapNode[], edges: MindmapEdge[]): ContentT
   return tasks;
 }
 
+// ─── ProfileSelector ──────────────────────────────────────────────────────
+
+const DENSITY_LABELS: Record<string, string> = { low: 'Éval. légères', medium: 'Éval. modérées', high: 'Éval. denses' };
+const DEPTH_LABELS: Record<string, string>   = { overview: 'Survol', standard: 'Standard', deep: 'Approfondi' };
+
+function ProfileSelector({
+  selected, onSelect,
+}: {
+  selected: ScenarizationProfile | null;
+  onSelect: (p: ScenarizationProfile | null) => void;
+}) {
+  const [preview, setPreview] = useState<string | null>(null);
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-medium text-slate-300">
+          Profil pédagogique <span className="text-slate-500 font-normal">(optionnel)</span>
+        </label>
+        {selected && (
+          <button onClick={() => { onSelect(null); setPreview(null); }}
+            className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
+            ✕ Aucun profil
+          </button>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        {BUILTIN_PROFILES.map((p) => {
+          const isSelected = selected?.id === p.id;
+          return (
+            <button
+              key={p.id}
+              onClick={() => {
+                onSelect(isSelected ? null : p);
+                setPreview(isSelected ? null : p.id);
+              }}
+              className={`text-left rounded-xl border p-3 transition-all
+                ${isSelected
+                  ? 'border-indigo-500 bg-indigo-500/10'
+                  : 'border-slate-700 bg-slate-800/50 hover:border-slate-500 hover:bg-slate-800'}`}
+            >
+              <div className="flex items-center gap-1.5 mb-1">
+                <span className="text-base leading-none">{p.icon}</span>
+                <span className={`text-xs font-semibold ${isSelected ? 'text-indigo-300' : 'text-slate-200'}`}>
+                  {p.name}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-400 leading-tight mb-2">{p.tagline}</p>
+              <div className="flex flex-wrap gap-1">
+                <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px] leading-none">
+                  {p.bloomLabel}
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 text-[10px] leading-none">
+                  {p.styleIcon} {p.styleLabel}
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 text-[10px] leading-none">
+                  {DENSITY_LABELS[p.evaluationDensity]}
+                </span>
+                <span className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 text-[10px] leading-none">
+                  {DEPTH_LABELS[p.contentDepth]}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {selected && preview === selected.id && (
+        <details className="group">
+          <summary className="text-[11px] text-indigo-400 cursor-pointer hover:text-indigo-300 select-none list-none flex items-center gap-1">
+            <span className="group-open:hidden">▶ Voir les instructions injectées dans le prompt</span>
+            <span className="hidden group-open:inline">▼ Masquer</span>
+          </summary>
+          <div className="mt-2 bg-slate-900/80 border border-slate-700/60 rounded-lg p-3 space-y-2">
+            {(['analyze', 'structure', 'content'] as const).map((phase) => (
+              <div key={phase}>
+                <div className="text-[10px] font-mono text-slate-500 mb-0.5 uppercase tracking-wide">
+                  {phase === 'analyze' ? 'Phase A — Analyse documentaire' : phase === 'structure' ? 'Phase B — Structure mindmap' : 'Phase 2 — Génération des contenus'}
+                </div>
+                <pre className="text-[10px] text-slate-400 whitespace-pre-wrap leading-relaxed font-mono">
+                  {buildPedagogicalInstructions(selected, phase)}
+                </pre>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 // ─── Main component ────────────────────────────────────────────────────────
 
 export function ScenarizationModal({ onClose }: Props) {
@@ -355,6 +452,7 @@ export function ScenarizationModal({ onClose }: Props) {
   const [moduleCount, setModuleCount] = useState(4);
   const [language, setLanguage] = useState('Français');
   const [additionalContext, setAdditionalContext] = useState('');
+  const [selectedProfile, setSelectedProfile] = useState<ScenarizationProfile | null>(null);
 
   // Flow state
   const [step, setStep] = useState<Step>('setup');
@@ -383,6 +481,20 @@ export function ScenarizationModal({ onClose }: Props) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
 
+  // ── Pedagogical profile injection helpers ────────────────────────────────
+  // Prepends profile instructions to the user's free text, per phase
+  const effectiveContext = (phase: 'analyze' | 'structure') => {
+    const profile = selectedProfile ? buildPedagogicalInstructions(selectedProfile, phase) : '';
+    const user = additionalContext.trim();
+    return [profile, user].filter(Boolean).join('\n\n') || undefined;
+  };
+
+  const effectiveContentText = () => {
+    const profile = selectedProfile ? buildPedagogicalInstructions(selectedProfile, 'content') : '';
+    const user = contentAdditionalText.trim();
+    return [profile, user].filter(Boolean).join('\n\n') || undefined;
+  };
+
   // ── Step A: analyze document ──────────────────────────────────────────────
   const handleAnalyze = async () => {
     setError('');
@@ -398,7 +510,7 @@ export function ScenarizationModal({ onClose }: Props) {
 
     try {
       await analyzeDocument(
-        { files, level, duration, moduleCount, language, additionalContext: additionalContext || undefined },
+        { files, level, duration, moduleCount, language, additionalContext: effectiveContext('analyze') },
         (event, data) => {
           const d = data as Record<string, unknown>;
           if (event === 'progress') {
@@ -442,7 +554,7 @@ export function ScenarizationModal({ onClose }: Props) {
 
     try {
       await scenarizeFromDocument(
-        { courseDocument, level, duration, moduleCount, language, additionalContext: additionalContext || undefined },
+        { courseDocument, level, duration, moduleCount, language, additionalContext: effectiveContext('structure') },
         (event, data) => {
           const d = data as Record<string, unknown>;
           if (event === 'progress') {
@@ -558,7 +670,7 @@ export function ScenarizationModal({ onClose }: Props) {
         },
         controller.signal,
         contentFiles,
-        contentAdditionalText || undefined,
+        effectiveContentText(),
       );
     } catch (e) {
       if ((e as Error).name !== 'AbortError') {
@@ -680,13 +792,15 @@ export function ScenarizationModal({ onClose }: Props) {
                   </select>
                 </div>
               </div>
+              <ProfileSelector selected={selectedProfile} onSelect={setSelectedProfile} />
+
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-slate-300">
-                  Contexte additionnel <span className="text-slate-500 font-normal">(optionnel)</span>
+                  Instructions complémentaires <span className="text-slate-500 font-normal">(optionnel — s'ajoute au profil)</span>
                 </label>
                 <textarea value={additionalContext} onChange={(e) => setAdditionalContext(e.target.value)}
                   placeholder="Focus sur les exercices pratiques, inclure des parcours conditionnels…"
-                  rows={3}
+                  rows={2}
                   className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 border border-slate-700 focus:border-indigo-500 focus:outline-none placeholder:text-slate-600 resize-none" />
               </div>
               <div className="flex items-start gap-2 bg-amber-500/8 border border-amber-500/20 rounded-lg px-3 py-2.5">
@@ -839,6 +953,19 @@ export function ScenarizationModal({ onClose }: Props) {
                   })}
                 </div>
               </div>
+
+              {/* Active profile indicator */}
+              {selectedProfile && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-indigo-500/8 border border-indigo-500/20 rounded-lg">
+                  <span className="text-base leading-none">{selectedProfile.icon}</span>
+                  <div className="min-w-0">
+                    <span className="text-xs text-indigo-300 font-medium">{selectedProfile.name}</span>
+                    <span className="text-xs text-slate-500 ml-1.5">— profil actif pour la génération</span>
+                  </div>
+                  <button onClick={() => setSelectedProfile(null)}
+                    className="ml-auto text-slate-600 hover:text-slate-400 text-sm flex-shrink-0">✕</button>
+                </div>
+              )}
 
               {/* Files */}
               <div className="space-y-1.5">
