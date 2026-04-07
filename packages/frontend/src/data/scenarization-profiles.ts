@@ -83,6 +83,57 @@ export const BUILTIN_PROFILES: ScenarizationProfile[] = [
   },
 ];
 
+// ─── Label maps (used by the custom profile editor) ──────────────────────────
+
+export const BLOOM_OPTIONS: { value: ScenarizationProfile['bloomLevel']; label: string; short: string }[] = [
+  { value: 'remember',  label: 'Mémoriser',  short: 'Retenir'    },
+  { value: 'understand',label: 'Comprendre', short: 'Comprendre' },
+  { value: 'apply',     label: 'Appliquer',  short: 'Appliquer'  },
+  { value: 'analyze',   label: 'Analyser',   short: 'Analyser'   },
+  { value: 'evaluate',  label: 'Évaluer',    short: 'Évaluer'    },
+  { value: 'create',    label: 'Créer',      short: 'Créer'      },
+];
+
+export const STYLE_OPTIONS: { value: ScenarizationProfile['pedagogicalStyle']; label: string; icon: string }[] = [
+  { value: 'transmissive', label: 'Transmissif', icon: '📖' },
+  { value: 'hybrid',       label: 'Hybride',     icon: '⚖️' },
+  { value: 'active',       label: 'Actif',       icon: '🎯' },
+];
+
+export const DENSITY_OPTIONS: { value: ScenarizationProfile['evaluationDensity']; label: string }[] = [
+  { value: 'low',    label: 'Légères'  },
+  { value: 'medium', label: 'Modérées' },
+  { value: 'high',   label: 'Denses'   },
+];
+
+export const DEPTH_OPTIONS: { value: ScenarizationProfile['contentDepth']; label: string }[] = [
+  { value: 'overview', label: 'Survol'      },
+  { value: 'standard', label: 'Standard'   },
+  { value: 'deep',     label: 'Approfondi' },
+];
+
+export const DIFFICULTY_OPTIONS: { value: ScenarizationProfile['quizDifficulty']; label: string }[] = [
+  { value: 'easy',   label: 'Facile' },
+  { value: 'medium', label: 'Moyen'  },
+  { value: 'hard',   label: 'Difficile' },
+];
+
+export const DEFAULT_CUSTOM_PROFILE: ScenarizationProfile = {
+  id: 'custom',
+  name: 'Personnalisé',
+  icon: '✏️',
+  tagline: 'Profil sur mesure',
+  bloomLabel: 'Appliquer',
+  styleLabel: 'Hybride',
+  styleIcon: '⚖️',
+  bloomLevel: 'apply',
+  pedagogicalStyle: 'hybrid',
+  practicalRatio: 50,
+  evaluationDensity: 'medium',
+  contentDepth: 'standard',
+  quizDifficulty: 'medium',
+};
+
 // ─── Instruction builders ─────────────────────────────────────────────────────
 
 const BLOOM: Record<string, string> = {

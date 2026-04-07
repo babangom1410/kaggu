@@ -11,6 +11,12 @@ import { useMindmapStore } from '@/stores/mindmap-store';
 import type { MindmapNode, MindmapEdge, QuizQuestion } from '@/types/mindmap.types';
 import {
   BUILTIN_PROFILES,
+  DEFAULT_CUSTOM_PROFILE,
+  BLOOM_OPTIONS,
+  STYLE_OPTIONS,
+  DENSITY_OPTIONS,
+  DEPTH_OPTIONS,
+  DIFFICULTY_OPTIONS,
   buildPedagogicalInstructions,
   type ScenarizationProfile,
 } from '@/data/scenarization-profiles';
@@ -353,13 +359,55 @@ function buildContentTasks(nodes: MindmapNode[], edges: MindmapEdge[]): ContentT
 const DENSITY_LABELS: Record<string, string> = { low: 'Éval. légères', medium: 'Éval. modérées', high: 'Éval. denses' };
 const DEPTH_LABELS: Record<string, string>   = { overview: 'Survol', standard: 'Standard', deep: 'Approfondi' };
 
+function ToggleGroup<T extends string>({
+  value, onChange, options,
+}: {
+  value: T;
+  onChange: (v: T) => void;
+  options: { value: T; label: string }[];
+}) {
+  return (
+    <div className="flex rounded-lg overflow-hidden border border-slate-700">
+      {options.map((opt) => (
+        <button key={opt.value} type="button" onClick={() => onChange(opt.value)}
+          className={`flex-1 py-1.5 text-xs transition-colors
+            ${value === opt.value
+              ? 'bg-indigo-500 text-white font-medium'
+              : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-slate-300'}`}>
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const BLOOM_INDEX = BLOOM_OPTIONS.reduce<Record<string, number>>((acc, b, i) => { acc[b.value] = i; return acc; }, {});
+
 function ProfileSelector({
   selected, onSelect,
 }: {
   selected: ScenarizationProfile | null;
   onSelect: (p: ScenarizationProfile | null) => void;
 }) {
-  const [preview, setPreview] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [custom, setCustom] = useState<ScenarizationProfile>(DEFAULT_CUSTOM_PROFILE);
+  const isCustomSelected = selected?.id === 'custom';
+
+  const updateCustom = (updates: Partial<ScenarizationProfile>) => {
+    const updated = { ...custom, ...updates };
+    setCustom(updated);
+    if (isCustomSelected) onSelect(updated);
+  };
+
+  const selectBuiltin = (p: ScenarizationProfile) => {
+    setShowPreview(false);
+    onSelect(selected?.id === p.id ? null : p);
+  };
+
+  const toggleCustom = () => {
+    setShowPreview(false);
+    if (isCustomSelected) { onSelect(null); } else { onSelect(custom); }
+  };
 
   return (
     <div className="space-y-2">
@@ -368,61 +416,162 @@ function ProfileSelector({
           Profil pédagogique <span className="text-slate-500 font-normal">(optionnel)</span>
         </label>
         {selected && (
-          <button onClick={() => { onSelect(null); setPreview(null); }}
+          <button onClick={() => { onSelect(null); setShowPreview(false); }}
             className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
             ✕ Aucun profil
           </button>
         )}
       </div>
 
+      {/* Built-in profiles grid */}
       <div className="grid grid-cols-2 gap-2">
         {BUILTIN_PROFILES.map((p) => {
           const isSelected = selected?.id === p.id;
           return (
-            <button
-              key={p.id}
-              onClick={() => {
-                onSelect(isSelected ? null : p);
-                setPreview(isSelected ? null : p.id);
-              }}
+            <button key={p.id} onClick={() => selectBuiltin(p)}
               className={`text-left rounded-xl border p-3 transition-all
                 ${isSelected
                   ? 'border-indigo-500 bg-indigo-500/10'
-                  : 'border-slate-700 bg-slate-800/50 hover:border-slate-500 hover:bg-slate-800'}`}
-            >
+                  : 'border-slate-700 bg-slate-800/50 hover:border-slate-500 hover:bg-slate-800'}`}>
               <div className="flex items-center gap-1.5 mb-1">
                 <span className="text-base leading-none">{p.icon}</span>
-                <span className={`text-xs font-semibold ${isSelected ? 'text-indigo-300' : 'text-slate-200'}`}>
-                  {p.name}
-                </span>
+                <span className={`text-xs font-semibold ${isSelected ? 'text-indigo-300' : 'text-slate-200'}`}>{p.name}</span>
               </div>
               <p className="text-[11px] text-slate-400 leading-tight mb-2">{p.tagline}</p>
               <div className="flex flex-wrap gap-1">
-                <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px] leading-none">
-                  {p.bloomLabel}
-                </span>
-                <span className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 text-[10px] leading-none">
-                  {p.styleIcon} {p.styleLabel}
-                </span>
-                <span className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 text-[10px] leading-none">
-                  {DENSITY_LABELS[p.evaluationDensity]}
-                </span>
-                <span className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 text-[10px] leading-none">
-                  {DEPTH_LABELS[p.contentDepth]}
-                </span>
+                <span className="px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 text-[10px] leading-none">{p.bloomLabel}</span>
+                <span className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 text-[10px] leading-none">{p.styleIcon} {p.styleLabel}</span>
+                <span className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 text-[10px] leading-none">{DENSITY_LABELS[p.evaluationDensity]}</span>
+                <span className="px-1.5 py-0.5 rounded bg-slate-700 text-slate-400 text-[10px] leading-none">{DEPTH_LABELS[p.contentDepth]}</span>
               </div>
             </button>
           );
         })}
       </div>
 
-      {selected && preview === selected.id && (
-        <details className="group">
+      {/* Custom profile card */}
+      <button onClick={toggleCustom}
+        className={`w-full text-left rounded-xl border p-3 transition-all
+          ${isCustomSelected
+            ? 'border-indigo-500 bg-indigo-500/10'
+            : 'border-dashed border-slate-600 hover:border-indigo-500/50 hover:bg-slate-800/50'}`}>
+        <div className="flex items-center gap-2">
+          <span className="text-base leading-none">✏️</span>
+          <div className="min-w-0">
+            <span className={`text-xs font-semibold ${isCustomSelected ? 'text-indigo-300' : 'text-slate-300'}`}>
+              Profil personnalisé
+            </span>
+            {isCustomSelected ? (
+              <span className="ml-2 text-[11px] text-slate-500">
+                Bloom: {custom.bloomLabel} · {custom.styleIcon} {custom.styleLabel} · {custom.practicalRatio}% pratique
+              </span>
+            ) : (
+              <span className="ml-2 text-[11px] text-slate-500">Configurer mes propres paramètres</span>
+            )}
+          </div>
+        </div>
+      </button>
+
+      {/* Custom editor — expanded when custom is selected */}
+      {isCustomSelected && (
+        <div className="border border-indigo-500/20 rounded-xl p-4 space-y-4 bg-slate-800/30">
+
+          {/* Bloom level */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-slate-300">Niveau Bloom</label>
+              <span className="text-xs text-indigo-300 font-medium">{custom.bloomLabel}</span>
+            </div>
+            <input
+              type="range" min={0} max={5} step={1}
+              value={BLOOM_INDEX[custom.bloomLevel] ?? 2}
+              onChange={(e) => {
+                const opt = BLOOM_OPTIONS[Number(e.target.value)];
+                updateCustom({ bloomLevel: opt.value, bloomLabel: opt.label });
+              }}
+              className="w-full accent-indigo-500 cursor-pointer"
+            />
+            <div className="flex justify-between text-[9px] text-slate-500 px-0.5">
+              {BLOOM_OPTIONS.map((b) => (
+                <span key={b.value} className={custom.bloomLevel === b.value ? 'text-indigo-400 font-medium' : ''}>
+                  {b.short}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          {/* Pedagogical style */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-300">Style pédagogique</label>
+            <ToggleGroup
+              value={custom.pedagogicalStyle}
+              onChange={(v) => {
+                const opt = STYLE_OPTIONS.find(s => s.value === v)!;
+                updateCustom({ pedagogicalStyle: v, styleLabel: opt.label, styleIcon: opt.icon });
+              }}
+              options={STYLE_OPTIONS.map(s => ({ value: s.value, label: `${s.icon} ${s.label}` }))}
+            />
+          </div>
+
+          {/* Practical ratio */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium text-slate-300">Ratio pratique / théorique</label>
+              <span className="text-xs text-indigo-300 font-medium">{custom.practicalRatio}% pratique</span>
+            </div>
+            <input
+              type="range" min={10} max={90} step={5}
+              value={custom.practicalRatio}
+              onChange={(e) => updateCustom({ practicalRatio: Number(e.target.value) })}
+              className="w-full accent-indigo-500 cursor-pointer"
+            />
+            <div className="flex justify-between text-[9px] text-slate-500">
+              <span>Théorique (10%)</span>
+              <span className="text-slate-600">Équilibré (50%)</span>
+              <span>Pratique (90%)</span>
+            </div>
+          </div>
+
+          {/* Evaluation density */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-300">Densité des évaluations</label>
+            <ToggleGroup
+              value={custom.evaluationDensity}
+              onChange={(v) => updateCustom({ evaluationDensity: v })}
+              options={DENSITY_OPTIONS}
+            />
+          </div>
+
+          {/* Content depth */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-300">Profondeur des pages</label>
+            <ToggleGroup
+              value={custom.contentDepth}
+              onChange={(v) => updateCustom({ contentDepth: v })}
+              options={DEPTH_OPTIONS}
+            />
+          </div>
+
+          {/* Quiz difficulty */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-slate-300">Difficulté des quiz</label>
+            <ToggleGroup
+              value={custom.quizDifficulty}
+              onChange={(v) => updateCustom({ quizDifficulty: v })}
+              options={DIFFICULTY_OPTIONS}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Instructions preview (for any selected profile) */}
+      {selected && (
+        <details className="group" open={showPreview} onToggle={(e) => setShowPreview((e.target as HTMLDetailsElement).open)}>
           <summary className="text-[11px] text-indigo-400 cursor-pointer hover:text-indigo-300 select-none list-none flex items-center gap-1">
             <span className="group-open:hidden">▶ Voir les instructions injectées dans le prompt</span>
             <span className="hidden group-open:inline">▼ Masquer</span>
           </summary>
-          <div className="mt-2 bg-slate-900/80 border border-slate-700/60 rounded-lg p-3 space-y-2">
+          <div className="mt-2 bg-slate-900/80 border border-slate-700/60 rounded-lg p-3 space-y-3">
             {(['analyze', 'structure', 'content'] as const).map((phase) => (
               <div key={phase}>
                 <div className="text-[10px] font-mono text-slate-500 mb-0.5 uppercase tracking-wide">
