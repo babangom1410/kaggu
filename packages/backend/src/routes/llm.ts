@@ -289,11 +289,13 @@ router.post(
     });
     const taskSchema = z.object({
       nodeId:       z.string().min(1),
-      subtype:      z.enum(['page', 'quiz']),
+      subtype:      z.enum(['page', 'quiz', 'book', 'lesson']),
       name:         z.string().min(1),
       description:  z.string().default(''),
       contentContext: z.string().default(''),
       questionCount: z.number().int().min(1).max(10).optional(),
+      chapterCount:  z.number().int().min(1).max(8).optional(),
+      pageCount:     z.number().int().min(1).max(10).optional(),
     });
 
     const schema = z.object({

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { scenarizeContent, type ContentTaskParams } from '@/api/llm-api';
 import { useMindmapStore } from '@/stores/mindmap-store';
-import type { PageResourceData, QuizActivityData, SectionNodeData } from '@/types/mindmap.types';
+import type { PageResourceData, BookResourceData, QuizActivityData, LessonActivityData, SectionNodeData, ResourceNodeData, ActivityNodeData } from '@/types/mindmap.types';
 
 interface Props {
   onClose: () => void;
@@ -9,11 +9,13 @@ interface Props {
 
 interface NodeTask {
   nodeId: string;
-  subtype: 'page' | 'quiz';
+  subtype: 'page' | 'quiz' | 'book' | 'lesson';
   name: string;
   description: string;
   contentContext: string;
   questionCount?: number;
+  chapterCount?: number;
+  pageCount?: number;
   status: 'pending' | 'done' | 'error';
 }
 
@@ -32,40 +34,25 @@ function buildTasks(
   const tasks: NodeTask[] = [];
 
   for (const node of nodes) {
+    const sectionId = parentMap.get(node.id);
+    const sectionNode = sectionId ? nodes.find((n) => n.id === sectionId) : undefined;
+    const contentContext = sectionNode
+      ? ((sectionNode.data as SectionNodeData).contentContext ?? '')
+      : '';
+
     if (node.type === 'resource') {
-      const d = node.data as PageResourceData;
-      if (d.subtype === 'page' && !d.content?.trim()) {
-        const sectionId = parentMap.get(node.id);
-        const sectionNode = sectionId ? nodes.find((n) => n.id === sectionId) : undefined;
-        const contentContext = sectionNode
-          ? ((sectionNode.data as SectionNodeData).contentContext ?? '')
-          : '';
-        tasks.push({
-          nodeId: node.id,
-          subtype: 'page',
-          name: d.name,
-          description: d.description ?? '',
-          contentContext,
-          status: 'pending',
-        });
+      const d = node.data as ResourceNodeData;
+      if (d.subtype === 'page' && !(d as PageResourceData).content?.trim()) {
+        tasks.push({ nodeId: node.id, subtype: 'page', name: d.name, description: d.description ?? '', contentContext, status: 'pending' });
+      } else if (d.subtype === 'book' && !(d as BookResourceData).chapters?.length) {
+        tasks.push({ nodeId: node.id, subtype: 'book', name: d.name, description: d.description ?? '', contentContext, chapterCount: 3, status: 'pending' });
       }
     } else if (node.type === 'activity') {
-      const d = node.data as QuizActivityData;
-      if (d.subtype === 'quiz' && (!d.questions || d.questions.length === 0)) {
-        const sectionId = parentMap.get(node.id);
-        const sectionNode = sectionId ? nodes.find((n) => n.id === sectionId) : undefined;
-        const contentContext = sectionNode
-          ? ((sectionNode.data as SectionNodeData).contentContext ?? '')
-          : '';
-        tasks.push({
-          nodeId: node.id,
-          subtype: 'quiz',
-          name: d.name,
-          description: d.description ?? '',
-          contentContext,
-          questionCount: 5,
-          status: 'pending',
-        });
+      const d = node.data as ActivityNodeData;
+      if (d.subtype === 'quiz' && (!(d as QuizActivityData).questions || (d as QuizActivityData).questions!.length === 0)) {
+        tasks.push({ nodeId: node.id, subtype: 'quiz', name: d.name, description: d.description ?? '', contentContext, questionCount: 5, status: 'pending' });
+      } else if (d.subtype === 'lesson' && !(d as LessonActivityData).pages?.length) {
+        tasks.push({ nodeId: node.id, subtype: 'lesson', name: d.name, description: d.description ?? '', contentContext, pageCount: 4, status: 'pending' });
       }
     }
   }
@@ -114,6 +101,8 @@ export function ContentGenerationModal({ onClose }: Props) {
       description:    t.description,
       contentContext: t.contentContext,
       questionCount:  t.questionCount,
+      chapterCount:   t.chapterCount,
+      pageCount:      t.pageCount,
     }));
 
     try {
@@ -122,11 +111,16 @@ export function ContentGenerationModal({ onClose }: Props) {
 
         if (event === 'node_done') {
           const nodeId = d.nodeId as string;
+          const nodeType = d.type as string;
           const content = d.content as string | undefined;
           const questions = d.questions as unknown[] | undefined;
 
           // Apply to store immediately
-          if (content !== undefined) {
+          if (nodeType === 'book' && content) {
+            try { updateNode(nodeId, { chapters: JSON.parse(content) } as Partial<PageResourceData>); } catch { /* ignore */ }
+          } else if (nodeType === 'lesson' && content) {
+            try { updateNode(nodeId, { pages: JSON.parse(content) } as Partial<PageResourceData>); } catch { /* ignore */ }
+          } else if (content !== undefined) {
             updateNode(nodeId, { content } as Partial<PageResourceData>);
           }
           if (questions !== undefined) {

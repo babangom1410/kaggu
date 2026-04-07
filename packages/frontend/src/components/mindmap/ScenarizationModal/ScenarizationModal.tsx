@@ -316,17 +316,19 @@ function PreviewView({
 function buildContentTasks(nodes: MindmapNode[], edges: MindmapEdge[]): ContentTaskParams[] {
   const tasks: ContentTaskParams[] = [];
 
-  function addIfPageOrQuiz(node: MindmapNode, ctx: string) {
+  function addIfGeneratable(node: MindmapNode, ctx: string) {
     const d = node.data as unknown as Record<string, unknown>;
     const subtype = d.subtype as string;
-    if (subtype === 'page' || subtype === 'quiz') {
+    if (subtype === 'page' || subtype === 'quiz' || subtype === 'book' || subtype === 'lesson') {
       tasks.push({
         nodeId: node.id,
-        subtype: subtype as 'page' | 'quiz',
+        subtype: subtype as 'page' | 'quiz' | 'book' | 'lesson',
         name: (d.name as string) ?? '',
         description: (d.description as string) ?? '',
         contentContext: ctx,
         questionCount: d.questionCount as number | undefined,
+        chapterCount: d.chapterCount as number | undefined,
+        pageCount: d.pageCount as number | undefined,
       });
     }
   }
@@ -344,10 +346,10 @@ function buildContentTasks(nodes: MindmapNode[], edges: MindmapEdge[]): ContentT
         const branchChildIds = edges.filter(e => e.source === child.id).map(e => e.target);
         for (const bcId of branchChildIds) {
           const bc = nodes.find(n => n.id === bcId);
-          if (bc) addIfPageOrQuiz(bc, ctx);
+          if (bc) addIfGeneratable(bc, ctx);
         }
       } else {
-        addIfPageOrQuiz(child, ctx);
+        addIfGeneratable(child, ctx);
       }
     }
   }
@@ -797,7 +799,14 @@ export function ScenarizationModal({ onClose }: Props) {
             setActiveNodes(prev => new Map(prev).set(nodeId, name));
           } else if (event === 'node_done') {
             const nodeId = d.nodeId as string;
-            if (d.content !== undefined) updateNode(nodeId, { content: d.content as string });
+            const nodeType = d.type as string;
+            if (nodeType === 'book' && d.content) {
+              try { updateNode(nodeId, { chapters: JSON.parse(d.content as string) }); } catch { /* ignore */ }
+            } else if (nodeType === 'lesson' && d.content) {
+              try { updateNode(nodeId, { pages: JSON.parse(d.content as string) }); } catch { /* ignore */ }
+            } else if (d.content !== undefined) {
+              updateNode(nodeId, { content: d.content as string });
+            }
             if (d.questions !== undefined) updateNode(nodeId, { questions: d.questions as QuizQuestion[] });
             setActiveNodes(prev => { const m = new Map(prev); m.delete(nodeId); return m; });
             setContentProgress(prev => ({ ...prev, done: prev.done + 1 }));

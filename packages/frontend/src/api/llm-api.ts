@@ -195,11 +195,13 @@ export function scenarizeFromDocument(params: StructureFromDocParams, onEvent: S
 
 export interface ContentTaskParams {
   nodeId: string;
-  subtype: 'page' | 'quiz';
+  subtype: 'page' | 'quiz' | 'book' | 'lesson';
   name: string;
   description: string;
   contentContext: string;
   questionCount?: number;
+  chapterCount?: number;
+  pageCount?: number;
 }
 
 export function scenarizeContent(

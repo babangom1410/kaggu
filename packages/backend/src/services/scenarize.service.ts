@@ -573,11 +573,13 @@ Format : ${QUIZ_SCHEMA}`,
 
 export interface ContentTask {
   nodeId: string;
-  subtype: 'page' | 'quiz';
+  subtype: 'page' | 'quiz' | 'book' | 'lesson';
   name: string;
   description: string;
   contentContext: string;
   questionCount?: number;
+  chapterCount?: number;
+  pageCount?: number;
 }
 
 export interface ContentGenerationParams {
@@ -1111,6 +1113,175 @@ export async function scenarizeCourseStructure(
 /** Backward-compatible alias */
 export const scenarizeCourse = scenarizeCourseStructure;
 
+// ─── Phase 2 generators: book chapters + lesson pages (with files + streaming) ─
+
+const BOOK_CHAPTER_SCHEMA_SCEN = `[
+  { "title": "Introduction",     "content": "<h2>Introduction</h2><p>...</p>", "subchapter": false },
+  { "title": "Concepts clés",    "content": "<p>...</p>",                      "subchapter": false },
+  { "title": "Sous-section 2.1", "content": "<p>...</p>",                      "subchapter": true  }
+]`;
+
+const BOOK_SYSTEM = `Tu es un expert en pédagogie numérique. Tu génères des chapitres de livre Moodle (module Book) en HTML pédagogique structuré.
+Règles strictes :
+- Retourne UNIQUEMENT un tableau JSON valide, sans texte avant ni après
+- Chaque chapitre : "title" (string), "content" (HTML), "subchapter" (boolean)
+- "subchapter": true = sous-chapitre indenté (section d'un chapitre principal)
+- HTML : h2, h3, p, ul, ol, li, strong, em, hr, table uniquement — PAS de balises html/head/body/script
+- Commence par un chapitre d'introduction, termine par une synthèse ou conclusion
+- Les sous-chapitres doivent suivre immédiatement leur chapitre parent
+Format JSON attendu :
+${BOOK_CHAPTER_SCHEMA_SCEN}`;
+
+async function generateBookChaptersForScen(
+  client: Anthropic,
+  name: string,
+  description: string,
+  context: string,
+  chapterCount: number,
+  language: string,
+  files?: ScenarizationFile[],
+  additionalText?: string,
+  onDelta?: (text: string) => void,
+): Promise<unknown[]> {
+  const userContent: unknown[] = [];
+
+  if (files?.length) {
+    for (const file of files) {
+      if (file.type === 'pdf') {
+        userContent.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: file.content }, title: file.name });
+      } else {
+        userContent.push({ type: 'text', text: `## ${file.name}\n\n${file.content.slice(0, MAX_TEXT_FILE_CHARS)}` });
+      }
+    }
+  }
+
+  let instruction = `Livre : "${name}"\nObjectif : ${description}\nContenu source :\n${context}\nNombre de chapitres : ${chapterCount}\nLangue : ${language}`;
+  if (additionalText) instruction += `\n\nInstructions supplémentaires : ${additionalText}`;
+  instruction += '\n\nGénère les chapitres du livre au format JSON.';
+  userContent.push({ type: 'text', text: instruction });
+
+  let raw = '';
+  const MAX_BOOK_TOKENS = Math.min(chapterCount * 1_200, 8_000);
+  const stream = client.messages.stream({
+    model: MODEL_CONTENT,
+    max_tokens: MAX_BOOK_TOKENS,
+    system: BOOK_SYSTEM,
+    messages: [{ role: 'user', content: userContent as Anthropic.ContentBlockParam[] }],
+  });
+
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      raw += event.delta.text;
+      onDelta?.(event.delta.text);
+    }
+  }
+
+  const jsonText = extractJsonArray(raw);
+  let chapters: unknown[];
+  try {
+    chapters = JSON.parse(jsonText) as unknown[];
+  } catch {
+    throw new Error(`Book "${name}": invalid JSON from Claude: ${raw.slice(0, 200)}`);
+  }
+
+  return chapters.map((c: unknown) => ({
+    ...(c as Record<string, unknown>),
+    id: `ai-ch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+  }));
+}
+
+const LESSON_PAGE_SCHEMA_SCEN = `[
+  { "title": "Introduction", "type": "content", "content": "<h2>Introduction</h2><p>...</p>" },
+  { "title": "Q : Qu'est-ce que X ?", "type": "multichoice", "content": "<p>Question</p>", "answers": [
+    { "text": "Bonne réponse", "correct": true,  "response": "Exact !",        "jumpto": -1 },
+    { "text": "Fausse réponse","correct": false, "response": "Pas tout à fait.","jumpto": 0 }
+  ]},
+  { "title": "Vrai ou Faux", "type": "truefalse", "content": "<p>Affirmation.</p>", "answers": [
+    { "text": "Vrai", "correct": true,  "response": "Correct !", "jumpto": -1 },
+    { "text": "Faux", "correct": false, "response": "Incorrect.", "jumpto": 0  }
+  ]}
+]`;
+
+const LESSON_SYSTEM = `Tu es un expert en pédagogie numérique. Tu génères des pages de leçon Moodle (module Lesson) au format JSON strict.
+Types de pages :
+- "content"     : page de contenu pur (pas de réponses), "content" contient du HTML pédagogique
+- "multichoice" : question à choix multiples, "answers" obligatoire avec au moins 2 réponses
+- "truefalse"   : vrai/faux, "answers" obligatoire avec EXACTEMENT 2 réponses (Vrai / Faux)
+- "shortanswer" : réponse courte, "answers" obligatoire avec au moins 1 réponse acceptée
+Règles strictes :
+- Retourne UNIQUEMENT un tableau JSON valide, sans texte avant ni après
+- Chaque page : "title" (string), "type", "content" (HTML), "answers" (si applicable)
+- "content" HTML : h2, h3, p, ul, ol, li, strong, em, hr uniquement — PAS de balises html/head/body/script
+- "answers[].jumpto" : -1 = page suivante, -2 = fin de leçon, 0 = cette page
+- Alterne entre pages de contenu et pages de questions pour un parcours interactif
+Format JSON attendu :
+${LESSON_PAGE_SCHEMA_SCEN}`;
+
+async function generateLessonPagesForScen(
+  client: Anthropic,
+  name: string,
+  description: string,
+  context: string,
+  pageCount: number,
+  language: string,
+  files?: ScenarizationFile[],
+  additionalText?: string,
+  onDelta?: (text: string) => void,
+): Promise<unknown[]> {
+  const userContent: unknown[] = [];
+
+  if (files?.length) {
+    for (const file of files) {
+      if (file.type === 'pdf') {
+        userContent.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: file.content }, title: file.name });
+      } else {
+        userContent.push({ type: 'text', text: `## ${file.name}\n\n${file.content.slice(0, MAX_TEXT_FILE_CHARS)}` });
+      }
+    }
+  }
+
+  let instruction = `Leçon : "${name}"\nObjectif : ${description}\nContenu source :\n${context}\nNombre de pages : ${pageCount}\nTypes autorisés : content, multichoice, truefalse, shortanswer\nLangue : ${language}`;
+  if (additionalText) instruction += `\n\nInstructions supplémentaires : ${additionalText}`;
+  instruction += '\n\nGénère les pages de la leçon au format JSON.';
+  userContent.push({ type: 'text', text: instruction });
+
+  let raw = '';
+  const MAX_LESSON_TOKENS = Math.min(pageCount * 800, 6_000);
+  const stream = client.messages.stream({
+    model: MODEL_CONTENT,
+    max_tokens: MAX_LESSON_TOKENS,
+    system: LESSON_SYSTEM,
+    messages: [{ role: 'user', content: userContent as Anthropic.ContentBlockParam[] }],
+  });
+
+  for await (const event of stream) {
+    if (event.type === 'content_block_delta' && event.delta.type === 'text_delta') {
+      raw += event.delta.text;
+      onDelta?.(event.delta.text);
+    }
+  }
+
+  const jsonText = extractJsonArray(raw);
+  let pages: unknown[];
+  try {
+    pages = JSON.parse(jsonText) as unknown[];
+  } catch {
+    throw new Error(`Lesson "${name}": invalid JSON from Claude: ${raw.slice(0, 200)}`);
+  }
+
+  return pages.map((p: unknown) => {
+    const page = p as Record<string, unknown>;
+    const pageId = `ai-lp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+    const answers = Array.isArray(page['answers'])
+      ? (page['answers'] as unknown[]).map((a: unknown) => ({
+          ...(a as Record<string, unknown>),
+          id: `ai-la-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+        }))
+      : [];
+    return { ...page, id: pageId, answers };
+  });
+}
+
 /** Phase 2: Generate HTML + quiz questions — concurrent (CONCURRENCY=4) with per-node streaming */
 export async function scenarizeContent(
   params: ContentGenerationParams,
@@ -1151,6 +1322,22 @@ export async function scenarizeContent(
             CONTENT_TASK_TIMEOUT_MS,
             `quiz "${task.name}"`,
           );
+        } else if (task.subtype === 'book') {
+          const chapterCount = Math.min(task.chapterCount ?? 3, 8);
+          const chapters = await withTimeout(
+            generateBookChaptersForScen(client, task.name, task.description, context, chapterCount, params.language, params.files, params.additionalText, onDelta),
+            CONTENT_TASK_TIMEOUT_MS * 2, // books need more time — multiple chapters
+            `book "${task.name}"`,
+          );
+          content = JSON.stringify(chapters); // serialized; frontend stores as node.data.chapters
+        } else if (task.subtype === 'lesson') {
+          const pageCount = Math.min(task.pageCount ?? 4, 10);
+          const pages = await withTimeout(
+            generateLessonPagesForScen(client, task.name, task.description, context, pageCount, params.language, params.files, params.additionalText, onDelta),
+            CONTENT_TASK_TIMEOUT_MS * 2, // lessons with multiple pages need more time
+            `lesson "${task.name}"`,
+          );
+          content = JSON.stringify(pages); // serialized; frontend stores as node.data.pages
         }
 
         console.log(`[scenarize:content] ${i + 1}/${total} "${task.name}" — DONE`);
