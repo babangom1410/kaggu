@@ -544,7 +544,7 @@ function ProfileSelector({
 
           {/* Content depth */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-slate-300">Profondeur des pages</label>
+            <label className="text-xs font-medium text-slate-300">Profondeur des contenus</label>
             <ToggleGroup
               value={custom.contentDepth}
               onChange={(v) => updateCustom({ contentDepth: v })}
