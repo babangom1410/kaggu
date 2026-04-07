@@ -84,6 +84,8 @@ interface ScenNodeSkeleton {
   name: string;
   description: string;  // full for assign/forum; brief for page/quiz
   questionCount?: number; // quiz only
+  chapterCount?: number;  // book only — number of chapters to generate in Phase 2
+  pageCount?: number;     // lesson only — number of lesson pages to generate in Phase 2
   maxgrade?: number;      // assign only
   submissiontype?: 'online_text' | 'file' | 'both'; // assign only
   url?: string;           // url only
@@ -407,8 +409,15 @@ Génère UNIQUEMENT ce JSON (1 section) :
       "name": "Module ${sectionIndex + 1} : ${safeName}",
       "summary": "1 phrase.",
       "nodes": [
+        // Contenu riche multi-concepts → Livre (1 nœud remplace plusieurs pages)
+        { "type": "resource", "subtype": "book", "name": "Titre du livre", "description": "1 phrase max 20 mots.", "chapterCount": 3, "completion": 1 },
+        // OU apprentissage séquentiel interactif → Leçon
+        { "type": "activity", "subtype": "lesson", "name": "Titre de la leçon", "description": "1 phrase max 20 mots.", "pageCount": 4, "completion": 2 },
+        // OU contenu court standalone → Page
         { "type": "resource", "subtype": "page", "name": "Titre de la page", "description": "1 phrase max 20 mots.", "completion": 1 },
-        { "type": "activity", "subtype": "quiz", "name": "Quiz : Titre", "description": "1 phrase max 20 mots.", "questionCount": 4, "completion": 2 }
+        // Évaluations — toujours des nœuds séparés
+        { "type": "activity", "subtype": "quiz", "name": "Quiz : Titre", "description": "1 phrase max 20 mots.", "questionCount": 4, "completion": 2 },
+        { "type": "activity", "subtype": "assign", "name": "Devoir : Titre", "description": "1 phrase max 20 mots.", "maxgrade": 20, "submissiontype": "online_text", "completion": 2 }
       ]
     }
   ]
@@ -417,9 +426,14 @@ Génère UNIQUEMENT ce JSON (1 section) :
 RÈGLES :
 - Exactement 1 section
 - Descriptions : MAX 1 phrase, MAX 20 mots
+- SÉLECTION DU TYPE DE CONTENU PRINCIPAL :
+  • book : contenu riche couvrant ≥2 concepts liés — "chapterCount" entre 2 et 5
+  • lesson : apprentissage séquentiel guidé avec interaction — "pageCount" entre 3 et 6
+  • page : 1 seul concept court ou référence rapide
+  • NE PAS créer plusieurs pages séparées pour un même sujet — utiliser book à la place
 - "questionCount" : entre 3 et ${MAX_QUESTIONS_PER_QUIZ}
-- Activités : quiz, assign, forum | Ressources : page, url
-- Pas de "content" ni "questions"`;
+- Ressources : page, url, book | Activités : quiz, assign, forum, lesson
+- Pas de "content", "questions", ni commentaires dans le JSON final`;
 }
 
 // ─── Step 2: content generation helpers ───────────────────────────────────────
@@ -587,6 +601,8 @@ function buildNodeData(item: ScenNodeEnriched): Record<string, unknown> {
   if (item.subtype === 'page') base.content = item.content ?? '';
   else if (item.subtype === 'url') base.url = item.url ?? '';
   else if (item.subtype === 'quiz') base.questions = item.questions ?? [];
+  else if (item.subtype === 'book') base.chapterCount = item.chapterCount ?? 3;
+  else if (item.subtype === 'lesson') base.pageCount = item.pageCount ?? 4;
   else if (item.subtype === 'assign') {
     base.maxgrade = item.maxgrade ?? 20;
     base.submissiontype = item.submissiontype ?? 'online_text';

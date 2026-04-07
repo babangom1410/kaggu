@@ -200,12 +200,19 @@ export function buildPedagogicalInstructions(
   }
 
   if (phase === 'structure') {
+    const contentTypeRule = {
+      transmissive: "TYPE DE CONTENU PRINCIPAL : utiliser BOOK (livre structuré en chapitres) — NE PAS créer plusieurs pages séparées pour un même sujet",
+      active:       "TYPE DE CONTENU PRINCIPAL : utiliser LESSON (leçon interactive et séquentielle) — NE PAS créer plusieurs pages séparées",
+      hybrid:       "TYPE DE CONTENU PRINCIPAL : utiliser BOOK pour les apports théoriques, LESSON pour les séquences guidées — PAGE uniquement pour des contenus courts standalone",
+    }[profile.pedagogicalStyle];
+
     return `PROFIL PÉDAGOGIQUE — ${profile.name} :
 • Bloom visé : ${BLOOM[profile.bloomLevel]}
 • Style : ${STYLE[profile.pedagogicalStyle]}
-• Composition du module : ~${profile.practicalRatio}% activités pratiques (quiz, assign) / ${100 - profile.practicalRatio}% contenu (pages)
+• ${contentTypeRule}
+• Composition du module : ~${profile.practicalRatio}% activités pratiques (quiz, assign) / ${100 - profile.practicalRatio}% contenu
 • Évaluations : ${DENSITY[profile.evaluationDensity]}
-• ${profile.pedagogicalStyle === 'active' ? "Privilégier les devoirs avec livrables concrets et les quiz d'application directe" : profile.pedagogicalStyle === 'transmissive' ? "Privilégier les pages approfondies, les devoirs d'analyse et de synthèse" : "Pages accessibles suivies de quiz courts (3-4 questions) pour valider chaque concept"}`;
+• ${profile.pedagogicalStyle === 'active' ? "Privilégier les devoirs avec livrables concrets et les quiz d'application directe" : profile.pedagogicalStyle === 'transmissive' ? "Privilégier les devoirs d'analyse et de synthèse, minimiser les forums" : "Quiz courts (3-4 questions) après chaque contenu pour valider la compréhension"}`;
   }
 
   // phase === 'content'
