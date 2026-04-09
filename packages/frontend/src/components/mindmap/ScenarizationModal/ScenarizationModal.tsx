@@ -773,8 +773,7 @@ export function ScenarizationModal({ onClose }: Props) {
   };
 
   const handleGenerateContent = async () => {
-    if (!result) return;
-    const allTasks = contentTasks.length > 0 ? contentTasks : buildContentTasks(result.nodes, result.edges);
+    const allTasks = contentTasks.length > 0 ? contentTasks : (result ? buildContentTasks(result.nodes, result.edges) : []);
     const tasks = allTasks.filter(t => selectedNodeIds.has(t.nodeId));
     if (tasks.length === 0) return;
 
@@ -1069,7 +1068,7 @@ export function ScenarizationModal({ onClose }: Props) {
           )}
 
           {/* CONTENT SETUP */}
-          {step === 'content_setup' && result && (
+          {step === 'content_setup' && (
             <div className="space-y-5">
 
               {/* Node selection */}
@@ -1103,7 +1102,7 @@ export function ScenarizationModal({ onClose }: Props) {
                             });
                           }}
                           className="w-3.5 h-3.5 rounded accent-indigo-500 flex-shrink-0" />
-                        <span className="text-sm">{t.subtype === 'page' ? '📄' : '❓'}</span>
+                        <span className="text-sm">{SUBTYPES_ICONS[t.subtype] ?? '📄'}</span>
                         <span className={`text-xs truncate ${checked ? 'text-slate-200' : 'text-slate-500'}`}>{t.name}</span>
                         <span className="ml-auto text-xs text-slate-600 flex-shrink-0">{t.subtype}</span>
                       </label>
