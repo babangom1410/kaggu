@@ -5,7 +5,6 @@ import { useAuthStore } from '@/stores/auth-store';
 import type { SyncStatus } from '@/stores/mindmap-store';
 import { ExportModal } from '@/components/mindmap/ExportModal';
 import { ImportModal } from '@/components/mindmap/ImportModal/ImportModal';
-import { CourseStructureWizard } from '@/components/mindmap/AiAssistant';
 import { ScenarizationModal } from '@/components/mindmap/ScenarizationModal';
 import { analyzeMindmap } from '@/api/llm-api';
 
@@ -223,7 +222,6 @@ export function Toolbar() {
   const [editValue, setEditValue] = useState(projectName);
   const [exportModalOpen, setExportModalOpen] = useState(false);
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [wizardOpen, setWizardOpen] = useState(false);
   const [analyzeOpen, setAnalyzeOpen] = useState(false);
   const [scenarizationOpen, setScenarizationOpen] = useState(false);
   const [contentGenOpen, setContentGenOpen] = useState(false);
@@ -326,17 +324,6 @@ export function Toolbar() {
           <path d="M6 1v10M1 6h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
         Section
-      </button>
-
-      {/* AI Wizard */}
-      <button
-        onClick={() => setWizardOpen(true)}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold
-                   bg-indigo-500/15 text-indigo-400 border border-indigo-500/20
-                   hover:bg-indigo-500/25 hover:text-indigo-300 transition-all duration-150"
-        title="Générer une structure de cours avec l'IA"
-      >
-        ✨ Assistant
       </button>
 
       {/* AI Scénarisation */}
@@ -498,9 +485,6 @@ export function Toolbar() {
 
       {/* Export modal */}
       {exportModalOpen && <ExportModal onClose={() => setExportModalOpen(false)} />}
-
-      {/* AI Course Structure Wizard */}
-      {wizardOpen && <CourseStructureWizard onClose={() => setWizardOpen(false)} />}
 
       {/* AI Scénarisation Modal */}
       {scenarizationOpen && <ScenarizationModal onClose={() => setScenarizationOpen(false)} />}
