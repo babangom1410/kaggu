@@ -7,7 +7,6 @@ import { ExportModal } from '@/components/mindmap/ExportModal';
 import { ImportModal } from '@/components/mindmap/ImportModal/ImportModal';
 import { CourseStructureWizard } from '@/components/mindmap/AiAssistant';
 import { ScenarizationModal } from '@/components/mindmap/ScenarizationModal';
-import { ContentGenerationModal } from '@/components/mindmap/ContentGenerationModal';
 import { analyzeMindmap } from '@/api/llm-api';
 
 // ─── Analyze Modal ────────────────────────────────────────────────────────────
@@ -506,8 +505,8 @@ export function Toolbar() {
       {/* AI Scénarisation Modal */}
       {scenarizationOpen && <ScenarizationModal onClose={() => setScenarizationOpen(false)} />}
 
-      {/* Phase 2: Content Generation Modal */}
-      {contentGenOpen && <ContentGenerationModal onClose={() => setContentGenOpen(false)} />}
+      {/* Phase 2: Content Generation Modal — reuses ScenarizationModal at content_setup step */}
+      {contentGenOpen && <ScenarizationModal onClose={() => setContentGenOpen(false)} initialStep="content_setup" />}
 
       {/* AI Analyze Modal */}
       {analyzeOpen && (

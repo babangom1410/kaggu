@@ -23,6 +23,7 @@ import {
 
 interface Props {
   onClose: () => void;
+  initialStep?: 'setup' | 'content_setup';
 }
 
 type Step = 'setup' | 'analyzing' | 'analysis_review' | 'structuring' | 'preview' | 'applied' | 'content_setup' | 'content_generating' | 'content_done';
@@ -593,7 +594,7 @@ function ProfileSelector({
 
 // ─── Main component ────────────────────────────────────────────────────────
 
-export function ScenarizationModal({ onClose }: Props) {
+export function ScenarizationModal({ onClose, initialStep }: Props) {
   const { replaceContent, setProjectName, updateNode, nodes: storeNodes, edges: storeEdges } = useMindmapStore();
 
   // Setup state
@@ -606,7 +607,7 @@ export function ScenarizationModal({ onClose }: Props) {
   const [selectedProfile, setSelectedProfile] = useState<ScenarizationProfile | null>(null);
 
   // Flow state
-  const [step, setStep] = useState<Step>('setup');
+  const [step, setStep] = useState<Step>(initialStep ?? 'setup');
   const [statusMessage, setStatusMessage] = useState('');
   const [streamText, setStreamText] = useState('');
   const [error, setError] = useState('');
@@ -631,6 +632,17 @@ export function ScenarizationModal({ onClose }: Props) {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [onClose]);
+
+  // If opened directly at content_setup, pre-populate tasks from current mindmap
+  useEffect(() => {
+    if (initialStep === 'content_setup') {
+      const tasks = buildContentTasks(storeNodes, storeEdges);
+      setContentTasks(tasks);
+      setSelectedNodeIds(new Set(tasks.map(t => t.nodeId)));
+      contentSetupFromSetup.current = true;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Pedagogical profile injection helpers ────────────────────────────────
   // Prepends profile instructions to the user's free text, per phase
